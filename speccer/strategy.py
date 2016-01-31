@@ -2,11 +2,21 @@
 # author: Ben Simner 
 
 import string
+import inspect
 import itertools
 import functools
 import abc
 
-def generate(typ, depth, guard=None):
+def generate(typ, depth, partial=None):
+    '''Generate some strategy of some depth
+    '''
+    strat = StratMeta.get_strat_instance(typ)
+    if partial:
+        yield from strat.generate(depth, partial=partial)
+    else:
+        yield from strat.generate(depth)
+
+def values(typ, depth, guard=None):
     '''Generate all results for some type 'typ'
     to depth 'depth'
 
@@ -14,7 +24,6 @@ def generate(typ, depth, guard=None):
     '''
     strat = StratMeta.get_strat_instance(typ)
     yield from strategy_generate(strat, depth, guard=guard)
-
 
 def strategy_generate(strat, depth, guard=None):
     '''Generate all results for some :class:`Strategy` 'strat'
@@ -66,16 +75,19 @@ class StratMeta(abc.ABCMeta):
     
     def __new__(mcls, name, bases, namespace, _subtype=None, autoregister=True):
         cls = super().__new__(mcls, name, bases, namespace)
-        cls._subtype = _subtype
 
-        if autoregister:
-            for base in bases:
-                try:
-                    if base._subtype:
+        for base in bases:
+            try:
+                if base._subtype:
+                    if autoregister:
                         StratMeta.__strats__[base._subtype] = cls
-                except AttributeError:
-                    pass
-            
+                        cls._subtype = base._subtype
+            except AttributeError:
+                pass
+
+        if _subtype:
+            cls._subtype = _subtype
+        cls.__autoregister__ = autoregister
         return cls
 
     def __getitem__(self, args):
@@ -83,6 +95,10 @@ class StratMeta(abc.ABCMeta):
             args = (args,)
 
         sub, = args
+        # lookup in __strats__
+        if sub in StratMeta.__strats__:
+            return StratMeta.__strats__[sub]
+
         return self.__class__(self.__name__, (self,) + self.__bases__,
                           dict(self.__dict__),
                           _subtype=sub)
@@ -117,13 +133,13 @@ class StratMeta(abc.ABCMeta):
             except AttributeError:
                 raise TypeError('Cannot get Strategy instance for ~{}, not a typing.Generic instance'.format(t))
         raise TypeError('Cannot get Strategy instance for ~{}'.format(t))
-                    
+
 class Strategy(metaclass=StratMeta): 
     '''A :class:`Strategy` is a method of generating values of some type
     in a deterministic, gradual way - building smaller values first
     '''
     @abc.abstractstaticmethod
-    def generate(depth, *, partial):
+    def generate(depth, partial):
         '''Generator for all values of depth 'depth'
         Starting with initial 'partial' value
         
@@ -137,15 +153,26 @@ class Strategy(metaclass=StratMeta):
         '''
 
     @classmethod
+    def initial(cls):
+        '''Returns the initial 'partial' value from this :class:`Strategy`'s
+        :meth:`generate` method.
+        '''
+        s = inspect.signature(cls.generate)
+        i = s.parameters['partial']
+        if i.default is inspect._empty:
+            return None
+        return i.default
+
+    @classmethod
     def values(cls, depth, guard=None):
         '''Returns the list of values this :class:`Strategy` generates
         for some givne depth 'depth'
         '''
-        yield from cls._trie_to_list(cls.generate(depth=depth), depth, max_depth=depth, guard=guard)
+        yield from cls._trie_to_list(cls.generate(depth=depth), depth, guard=guard)
 
     @classmethod
-    def _trie_to_list(cls, trie, d, max_depth, guard=None):
-        if max_depth == 0:
+    def _trie_to_list(cls, trie, depth, guard=None):
+        if depth == 0:
             for p, l in trie:
                 yield from l
 
@@ -158,5 +185,34 @@ class Strategy(metaclass=StratMeta):
                 yield v
 
             if p:
-                t = cls.generate(partial=p, depth=d)
-                yield from cls._trie_to_list(t, d, max_depth=max_depth-1, guard=guard)
+                t = cls.generate(depth - 1, partial=p)
+                yield from cls._trie_to_list(t, depth-1, guard=guard)
+
+def map_strategy(strat_instance_type, super_strat, **kwargs):
+    '''Create a new strategy for 'strat_instance_type' by decorating a generator function
+    that yields new values from partials generated from 'super_strat'
+
+    i.e.
+    class Nat:
+        S = lambda n: Nat(n)
+        Z = Nat()
+        def __init__(self, suc=None):
+            self.suc = suc
+
+    @map_strategy(Nat, Strategy[int])
+    def IntStrat(nat):
+        def nat_to_int(n):
+            if n.suc is None:
+                return 0
+            return 1 + nat_to_int(n.suc)
+        yield nat_to_int(nat)
+        yield - nat_to_int(nat)
+    '''
+    def decorator(f):
+        class MapStrat(Strategy[strat_instance_type], **kwargs):
+            def generate(depth, partial=super_strat.initial()):
+                for k, vs in super_strat.generate(depth, partial=partial):
+                    for v in vs:
+                        yield k, f(v)
+        return MapStrat
+    return decorator
