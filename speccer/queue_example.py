@@ -1,7 +1,8 @@
-from model import *
-from strategy import *
+from .model import *
+from .strategy import *
+from .spec import *
 
-import default_strategies
+from . import default_strategies
 
 queue_state = collections.namedtuple('QueueState', ['ptr', 'size', 'list'])
 
@@ -25,11 +26,10 @@ class QueueModel(Model):
         return Q(size)
 
     @new.pre
-    def new(self):
-        pass
-
-    @new.pre
     def new(self, args):
+        '''Can only `new(n)` on n > 0,
+        and `new` hasn't been called before
+        '''
         size, = args
         self.assertTrue(size > 0)
         self.assertEqual(self.state.ptr, None)
@@ -43,9 +43,31 @@ class QueueModel(Model):
     def enqueue(self, q: Q, v: int):
         return q.enq(v)
 
+    @enqueue.pre
+    def enqueue(self, args):
+        '''enqueue on a Q is always valid
+        '''
+        q, v = args
+        self.assertEqual(type(q), Q)
+
+
+    @enqueue.next
+    def enqueue(self, args):
+        q, v = args
+        ptr, sz, l = self.state
+        return queue_state(ptr, size, l + [v])
+
+    @enqueue.post
+    def enqueue(self):
+        pass
+
     @command
     def dequeue(self, q: Q) -> int:
         return q.deq()
+
+@Property
+def prop_queueWorks(model: QueueModel):
+    validate(model)
 
 print('-----------------')
 print('-----------------')

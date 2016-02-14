@@ -1,11 +1,8 @@
 import string
 
-from strategy import *
+from .strategy import *
 
 LETTERS = string.ascii_lowercase
-
-class Nat(int):
-    pass
 
 class IntStrat(Strategy[int]):
     def generate(depth, max_depth, partial=0):
@@ -13,12 +10,6 @@ class IntStrat(Strategy[int]):
 
         for k in range(1, max_depth):
             yield None, [k, -k]
-
-class NatStrat(Strategy[Nat]):
-    def generate(depth, max_depth, partial=0):
-        for k in range(max_depth):
-            yield None, [Nat(k)]
-
 
 
 class StrStrat(Strategy[str]):
@@ -32,6 +23,3 @@ class StrStrat(Strategy[str]):
 @map_strategy(None, IntStrat)
 def OtherIntStrat(d, i):
     yield i
-
-if __name__ == '__main__':
-    print(list(values(Nat, 2)))

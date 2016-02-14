@@ -4,12 +4,13 @@
 import collections
 import itertools
 import inspect
+import functools
 from pprint import pprint
 
-from strategy import *
-import default_strategies as default
+from .strategy import *
+from . import default_strategies as default
 
-def empty(self):
+def empty(self, *_):
     return True
 
 def empty_state(self, args, v):
@@ -82,14 +83,14 @@ def deep_tee(iterator, n=2, typ=tuple):
         return (gen(d) for d in deques)
 
 VAR_LENGTH = 1
-VAR_NAMES = list(values(str, VAR_LENGTH))
+VAR_NAMES = list(values(VAR_LENGTH, str))
 
 
 def GET_VAR(i):
     global VAR_LENGTH, VAR_NAMES
     if i >= VAR_LENGTH:
         VAR_LENGTH += 1
-        VAR_NAMES = list(values(str, VAR_LENGTH))
+        VAR_NAMES = list(values(VAR_LENGTH, str))
     return VAR_NAMES[i]
 
 def pretty_str(partial: Partial) -> str:
@@ -105,7 +106,7 @@ def pretty_str(partial: Partial) -> str:
         s = '{var} <- {s}'.format(var=var, s=s)
 
     if partial.command.return_annotation:
-        s = '{s} -> {rt}'.format(s=s, rt=partial.command.return_annotation)
+        s = '{s} -> {rt}'.format(s=s, rt=partial.command.return_annotation.__name__)
 
     return s
 
@@ -183,13 +184,14 @@ def get_param_generator(cmd: Command, depth: int):
 
     for name, p in itertools.islice(cmd.parameters.items(), 1, None):
         p = p.annotation
-        yield (p, values(p, depth))
+        yield (p, values(depth, p))
 
 def get_param_generators(cmds, depth: int):
     '''Returns a generator of parameter generators
     for the given list of Command 'cmds'
     to some depth 'depth'
     '''
+
     for cmd in cmds:
         yield get_param_generator(cmd, depth)
 
@@ -230,37 +232,26 @@ class ModelMeta(type):
             - also force use of previously generated values for arguments with no Strategy instance
             '''
 
-            print()
-            print()
-            print('cmds =', *cmds)
-
             # get list of generators for each paramater
             # for each command in the given partial list of commands
-            generators = get_param_generators(cmds, max_depth)
-
-            param_gens = generators
-            initial_node = (cmds, param_gens, [], 0)
             open_list = collections.deque()
-            open_list.appendleft(initial_node)
 
+            #get_param_generator(cmd: Command, depth: int)
+            initial = [(cmds, [], 0)]
+
+
+            # we loop over building a list of partials
             while open_list:
-                print('try open_list:', len(open_list))
-                (ks, gens, partials, var_count) = open_list.popleft()
-
+                (ks, partials, var_count) = open_list.popleft()
                 if len(ks) >= 1:
                     k, *ks = ks 
                     gen = next(gens)
                 else:
-                    print('^yielding, partials=', '; '.join(map(pretty_str,partials)))
                     yield partials
                     continue
 
-                print('expanding', k)
-                print('arg len =', len(k.parameters))
-                print('partials:')
-                pprint(partials)
-
                 # The generator of command argument list generators
+
                 gens, gens_tee = deep_tee(gens)
                 gen, gen_tee = deep_tee(gen)
                 args = []
@@ -277,27 +268,17 @@ class ModelMeta(type):
                             arg = next(arg_g)
                             possible_args.append(PartialArg(arg, None, p))
                         except MissingStrategyError as e:
-                            print('MissingStrat!', e)
                             # look through partials for anything with type p
                             for p_i, partial in enumerate(partials):
                                 if partial.command.return_annotation is p:
-                                    print('got a {p}'.format(p=p))
                                     # see if it has a var
                                     if partial.var:
-                                        print('it has a var={var}'.format(var=partial.var))
                                         possible_args.append(PartialArg(None, partial.var, p))
                                     else:
-                                        print('it has no var')
                                         # make a copy of partials 
                                         # and alter partials_copy[i] to now contain a pointer to p
                                         partials_cpy = list(partials)
-
-                                        print('Partials was:')
-                                        pprint(partials)
                                         partials_cpy[p_i] = Partial(partial.command, partial.args, GET_VAR(var_count))
-
-                                        print('Changed partials to:')
-                                        pprint(partials_cpy)
 
                                         gens_tee, gens_copy = deep_tee(gens_tee)
                                         gen_tee, gen_copy = deep_tee(gen_tee)
@@ -310,26 +291,21 @@ class ModelMeta(type):
                                         open_list.append(new_node)
 
                         except StopIteration:
-                            print('StopIteration!')
                             break
                    
-                    if possible_args != []:
-                        args.append(PossibleArgs(p, possible_args))
-                    else:
+                    if possible_args == []:
                         break
 
+                    args.append(PossibleArgs(p, possible_args))
+
                 if len(args) != len(k.parameters) - 1:
-                    print('mismatch')
                     continue
 
-                print('after while')
                 d = collections.deque()
                 d.append(args)
 
                 while d:
                     args = d.popleft()
-                    print('got args:')
-                    pprint(args)
 
                     for i, arg in enumerate(args):
                         if type(arg) == PossibleArgs:
@@ -343,8 +319,6 @@ class ModelMeta(type):
                         gens_tee, gens_copy = deep_tee(gens_tee)
                         open_list.append((ks, gens_copy, other_partials, var_count))
 
-                print('after d')
-            print('after open_list loop')
         cls.__partial_strat__ = _PartialStrat
         return cls
 
@@ -372,40 +346,46 @@ class Model(object, metaclass=ModelMeta):
         TODO: that.
         '''
 
-        raise ValueError
         model_strategy = StratMeta.get_strat_instance(cls)
-        cmds = model_strategy.generate(d)
+        yield from model_strategy.values(d)
 
-        for n, xs in cmds:
-            yield n, xs
-
-def validate(list_of_partial_commands, initial_state=0):
+def validate(initial_state=0):
+    '''validate the state transitions
+    '''
     current_state = initial_state
-    for partial in list_of_partial_commands:
+
+    while True:
+        partial = yield
         cmd = partial.command
         args = partial.args
-        if not cmd.fpre(current_state):
-            return False
 
-        current_state = cmd.fnext(*args)
-    return True
+        if not cmd.fpre(current_state, args):
+            raise StopIteration
+
+        v = yield
+        current_state = cmd.fnext(args, v)
+        
+        if not cmd.fpost(args, v):
+            raise StopIteration
 
 if __name__ == '__main__':
-    class Q:
-        pass
-
     class TestModel(Model):
         @command
-        def new(self, size: default.Nat) -> Q:
+        def new(self, size: int) -> int:
             return size
 
         @command 
-        def enqueue(self, q: Q, v: default.Nat):
+        def enqueue(self, q: int, v: int):
+            pass
+
+        @command
+        def dequeue(self, q: int) -> int:
             pass
 
     print('-----------------')
     print('-----------------')
-    vals = list(TestModel.__partial_strat__.values(2))
+    vals = list(TestModel.__partial_strat__.values(3))
+    spec(vals)
     for cmds in vals:
         print('---')
         for cmd in cmds:

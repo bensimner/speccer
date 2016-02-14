@@ -5,12 +5,63 @@ import string
 import inspect
 import itertools
 import functools
+import collections
 import abc
 
 class MissingStrategyError(Exception):
     pass
 
-def generate(typ, depth, partial=None):
+def value_args(depth, *types, sentinal=None):
+    '''Creates a `Strategy' which generates all tuples of type *types
+    i.e. 
+        value_args(1, str, int) ->
+            ('a', 0)
+            ('a', 1)
+            ('a', -1)
+            ('b', 0)
+            ('b', 1)
+            ('b', -1)
+            ...
+            ('bb' 0)
+            ('bb' 1)
+            ('bb' -1)
+
+    If any given type has no strategy instance then put the sentinal value there instead
+    i.e.
+        value_args(1, int, MyTypeWithNoStratInstance, sentinal=None) ->
+            (0, None)
+            (1, None)
+            (-1, None)
+    ''' 
+    yield from generate_args_from_generators(*map(functools.partial(values, depth), types), sentinal=sentinal)
+
+def generate_args_from_generators(*generators, sentinal=None):
+    '''Generates a list of n-tuples of `generators' generation instances
+    (i.e. permutations of `generators')
+    '''
+    type_gen = collections.deque(generators)
+    poss = collections.deque()
+    poss.append([])
+    new_poss = collections.deque()
+    
+    while type_gen:
+        gen = type_gen.popleft()
+
+        try:
+            for v in gen:
+                for ks in poss:
+                    new_poss.append(ks + [v])
+        except MissingStrategyError:
+            for ks in poss:
+                new_poss.append(ks + [sentinal])
+
+        poss = new_poss
+        new_poss = collections.deque()
+
+    yield from map(tuple, poss)
+
+
+def generate(depth, typ, partial=None):
     '''Generate some strategy of some depth
     '''
     strat = StratMeta.get_strat_instance(typ)
@@ -19,20 +70,13 @@ def generate(typ, depth, partial=None):
     else:
         yield from strat.generate(depth, max_depth=depth)
 
-def values(typ, depth, guard=None):
+def values(depth, typ, guard=None):
     '''Generate all results for some type 'typ'
     to depth 'depth'
 
     Checking partials against 'guard' function
     '''
     strat = StratMeta.get_strat_instance(typ)
-    yield from strategy_generate(strat, depth, guard=guard)
-
-def strategy_generate(strat, depth, guard=None):
-    '''Generate all results for some :class:`Strategy` 'strat'
-    up until some depth 'depth', checking all partials against some 
-    guard condition 'guard'
-    '''
     yield from strat.values(depth, guard=guard)
 
 def given(*ts, **kws):
@@ -66,6 +110,15 @@ def given(*ts, **kws):
             return f(*(args + given_ts), **kwargs)
         return _wrapper
     return _decorator
+
+def has_strat_instance(t):
+    try:
+        StratMeta.get_strat_instance(t)
+        return True
+    except MissingStrategyError:
+        return False
+
+    raise ValueError(t)
 
 class StratMeta(abc.ABCMeta):
     '''Metaclass for an strat generator
@@ -139,6 +192,8 @@ class StratMeta(abc.ABCMeta):
 class Strategy(metaclass=StratMeta): 
     '''A :class:`Strategy` is a method of generating values of some type
     in a deterministic, gradual way - building smaller values first
+
+    In future: this will be a wrapper around a generator (defined by `Strategy.generate')
     '''
     @abc.abstractstaticmethod
     def generate(depth, partial, max_depth):
@@ -177,7 +232,7 @@ class Strategy(metaclass=StratMeta):
         return i.default
 
     @classmethod
-    def values(cls, depth, guard=None):
+    def values(cls, depth, *, guard=None):
         '''Returns the list of values this :class:`Strategy` generates
         for some givne depth 'depth'
         '''
@@ -196,8 +251,9 @@ class Strategy(metaclass=StratMeta):
 
             if depth < max_depth:
                 for p, l in trie:
-                    # yield the partial result
-                    if p and guard and not guard(p):
+                    l, l_ = itertools.tee(l)
+
+                    if p and guard and not guard(p, *(yield from l_)):
                         continue
 
                     for v in l:
