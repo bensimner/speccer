@@ -44,44 +44,6 @@ def PartialArg_repr(self):
 
 PartialArg.__repr__ = PartialArg_repr
 
-PossibleArgs = collections.namedtuple('PossibleArgs', ['type', 'args'])
-
-def deep_tee(iterator, n=2, typ=tuple):
-    try:
-        it = iter(iterator)
-    except TypeError:
-        return None
-
-    deques = [collections.deque() for _ in range(n)]
-    _to_throw = collections.namedtuple('_to_throw', ['e'])
-    def gen(d):
-        while True:
-            if not d:
-                try:
-                    v = next(it)
-                except StopIteration:
-                    return
-                except Exception as e: 
-                    for d2 in deques:
-                        d2.append(_to_throw(e))
-                else:
-                    gs = deep_tee(v, n=n, typ=type(v))
-
-                    if gs:
-                        for g, d2 in zip(gs, deques):
-                            d2.append(g)
-                    else:
-                        for d2 in deques:
-                            d2.append(v)
-            v = d.popleft()
-            if type(v) == _to_throw:
-                raise v.e
-            yield v
-    try:
-        return typ(gen(d) for d in deques)
-    except TypeError:
-        return (gen(d) for d in deques)
-
 VAR_LENGTH = 1
 VAR_NAMES = list(values(VAR_LENGTH, str))
 
@@ -99,7 +61,6 @@ def pretty_str(partial: Partial) -> str:
     args = partial.args
     
     s = name
-
     s = '{s}({})'.format(', '.join(map(repr, args)), s=s)
 
     if var:
@@ -158,6 +119,11 @@ class Command:
         s = self.signature 
         return s.parameters 
 
+    @property
+    def param_types(self):
+        for p in itertools.islice(self.parameters.values(), 1, None):
+            yield p.annotation
+
     def __get__(self, obj, objtype=None): 
         '''Getting a Command is looking up its `fdo` function
         '''
@@ -175,25 +141,6 @@ def command(f):
     state transitions in a stateful model.
     '''
     return Command(f)
-
-def get_param_generator(cmd: Command, depth: int):
-    '''Given a :class:`Command` 'cmd' return a
-    generator of generators for each parameter
-    at depth 'depth'
-    '''
-
-    for name, p in itertools.islice(cmd.parameters.items(), 1, None):
-        p = p.annotation
-        yield (p, values(depth, p))
-
-def get_param_generators(cmds, depth: int):
-    '''Returns a generator of parameter generators
-    for the given list of Command 'cmds'
-    to some depth 'depth'
-    '''
-
-    for cmd in cmds:
-        yield get_param_generator(cmd, depth)
 
 class ModelMeta(type):
     '''Metaclass of a :class:`Model`
@@ -237,87 +184,62 @@ class ModelMeta(type):
             open_list = collections.deque()
 
             #get_param_generator(cmd: Command, depth: int)
-            initial = [(cmds, [], 0)]
+            initial = (cmds, [], 0)
+            open_list.append(initial)
 
-
-            # we loop over building a list of partials
             while open_list:
                 (ks, partials, var_count) = open_list.popleft()
-                if len(ks) >= 1:
-                    k, *ks = ks 
-                    gen = next(gens)
-                else:
+                partials2 = list(partials)
+
+                if ks == []:
                     yield partials
                     continue
 
-                # The generator of command argument list generators
+                k, *ks = ks
 
-                gens, gens_tee = deep_tee(gens)
-                gen, gen_tee = deep_tee(gen)
-                args = []
+                types = list(k.param_types)
 
-                # advance each by 1
-                print('//', '; '.join(map(pretty_str, partials)), '->' ,k.name, '->', ks)
-                for i, (p, arg_g) in enumerate(gen):
-                    possible_args = []
-                    arg_g, arg_g_cpy = deep_tee(arg_g)
-                    print('/', p)
-                    
-                    while True:
-                        try:
-                            arg = next(arg_g)
-                            possible_args.append(PartialArg(arg, None, p))
-                        except MissingStrategyError as e:
-                            # look through partials for anything with type p
-                            for p_i, partial in enumerate(partials):
-                                if partial.command.return_annotation is p:
-                                    # see if it has a var
-                                    if partial.var:
-                                        possible_args.append(PartialArg(None, partial.var, p))
-                                    else:
-                                        # make a copy of partials 
-                                        # and alter partials_copy[i] to now contain a pointer to p
-                                        partials_cpy = list(partials)
-                                        partials_cpy[p_i] = Partial(partial.command, partial.args, GET_VAR(var_count))
+                arg_tuples = collections.deque(value_args(depth, *types))
+                possible_replacements = collections.defaultdict(list)
+                var_t = collections.namedtuple('var', ['name'])
 
-                                        gens_tee, gens_copy = deep_tee(gens_tee)
-                                        gen_tee, gen_copy = deep_tee(gen_tee)
+                def go():
+                    for i, p in enumerate(partials):
+                        if p.command.return_annotation is t:
+                            if p.var is None:
+                                # go back and put a var on it
+                                partials2 = list(partials)
+                                partials2[i] = partials2[i]._replace(var=GET_VAR(var_count))
+                                open_list.append(([k]+ks, partials2, var_count+1))
+                            else:
+                                # put that in arg_tuples
+                                arg = var_t(p.var)
+                                possible_replacements[t].append(arg)
+                                arg_tuples.append(arg_tuple[:j] + (arg,) + arg_tuple[(1+j):])
 
-                                        new_node = ([k] + ks, 
-                                                    itertools.chain([gen_tee], gens_tee),
-                                                    partials_cpy,
-                                                    var_count + 1)
+                while arg_tuples:
+                    arg_tuple = arg_tuples.popleft()
 
-                                        open_list.append(new_node)
-
-                        except StopIteration:
-                            break
-                   
-                    if possible_args == []:
-                        break
-
-                    args.append(PossibleArgs(p, possible_args))
-
-                if len(args) != len(k.parameters) - 1:
-                    continue
-
-                d = collections.deque()
-                d.append(args)
-
-                while d:
-                    args = d.popleft()
-
-                    for i, arg in enumerate(args):
-                        if type(arg) == PossibleArgs:
-                            for a in arg.args:
-                                d.appendleft(args[:i] + [a] + args[i+1:])
+                    for j, (v, t) in enumerate(zip(arg_tuple, types)):
+                        if v is MissingStrategyError:
+                            if t in possible_replacements:
+                                for arg in possible_replacements[t]:
+                                    arg_tuples.append(arg_tuple[:j] + (arg,) + arg_tuple[1+j:])
+                                continue
+                            # go back and look for return type of `t' in partials
+                            go()
                             break
                     else:
-                        other_partials = list(partials)
-                        other_partials.append(Partial(k, args, None))
+                        def get_partial(val, t):
+                            if isinstance(val, var_t):
+                                return PartialArg(None, val.name, t)
+                            return PartialArg(val, None, t)
 
-                        gens_tee, gens_copy = deep_tee(gens_tee)
-                        open_list.append((ks, gens_copy, other_partials, var_count))
+                        partial_args = list(map(get_partial, arg_tuple, types))
+                        partial = Partial(k, partial_args, None)
+                        partials2 = list(partials)
+                        partials2.append(partial) 
+                        open_list.append((ks, partials2, var_count))
 
         cls.__partial_strat__ = _PartialStrat
         return cls
@@ -368,24 +290,25 @@ def validate(initial_state=0):
         if not cmd.fpost(args, v):
             raise StopIteration
 
-if __name__ == '__main__':
+def test_model():
+    class Q:
+        pass
     class TestModel(Model):
         @command
-        def new(self, size: int) -> int:
-            return size
+        def new(self, size: int) -> Q:
+            return Q()
 
         @command 
-        def enqueue(self, q: int, v: int):
+        def enqueue(self, q: Q, v: int):
             pass
 
         @command
-        def dequeue(self, q: int) -> int:
+        def dequeue(self, q: Q) -> int:
             pass
 
     print('-----------------')
     print('-----------------')
-    vals = list(TestModel.__partial_strat__.values(3))
-    spec(vals)
+    vals = TestModel.__partial_strat__.values(3)
     for cmds in vals:
         print('---')
         for cmd in cmds:

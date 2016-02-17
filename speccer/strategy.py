@@ -11,7 +11,7 @@ import abc
 class MissingStrategyError(Exception):
     pass
 
-def value_args(depth, *types, sentinal=None):
+def value_args(depth, *types):
     '''Creates a `Strategy' which generates all tuples of type *types
     i.e. 
         value_args(1, str, int) ->
@@ -26,16 +26,16 @@ def value_args(depth, *types, sentinal=None):
             ('bb' 1)
             ('bb' -1)
 
-    If any given type has no strategy instance then put the sentinal value there instead
+    If any given type has no strategy instance then a MissingStrategyError is put there instead
     i.e.
-        value_args(1, int, MyTypeWithNoStratInstance, sentinal=None) ->
-            (0, None)
-            (1, None)
-            (-1, None)
+        value_args(1, int, MyTypeWithNoStratInstance) ->
+            (0, MissingStrategyError)
+            (1, MissingStrategyError)
+            (-1, MissingStrategyError)
     ''' 
-    yield from generate_args_from_generators(*map(functools.partial(values, depth), types), sentinal=sentinal)
+    yield from generate_args_from_generators(*map(functools.partial(values, depth), types))
 
-def generate_args_from_generators(*generators, sentinal=None):
+def generate_args_from_generators(*generators):
     '''Generates a list of n-tuples of `generators' generation instances
     (i.e. permutations of `generators')
     '''
@@ -53,7 +53,7 @@ def generate_args_from_generators(*generators, sentinal=None):
                     new_poss.append(ks + [v])
         except MissingStrategyError:
             for ks in poss:
-                new_poss.append(ks + [sentinal])
+                new_poss.append(ks + [MissingStrategyError])
 
         poss = new_poss
         new_poss = collections.deque()
@@ -115,6 +115,14 @@ def has_strat_instance(t):
     try:
         StratMeta.get_strat_instance(t)
         return True
+    except MissingStrategyError:
+        return False
+
+    raise ValueError(t)
+
+def get_strat_instance(t):
+    try:
+        return StratMeta.get_strat_instance(t)
     except MissingStrategyError:
         return False
 

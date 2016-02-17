@@ -18,4 +18,4 @@ class DefaultValuesTestCase(unittest.TestCase):
 
 if __name__ == '__main__':
     #unittest.main()
-    print(list(value_args(2, str, float)))
+    test_model()
