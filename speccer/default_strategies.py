@@ -5,7 +5,7 @@ from .strategy import *
 LETTERS = string.ascii_lowercase
 
 class IntStrat(Strategy[int]):
-    def generate(depth, max_depth, partial=0):
+    def generate(self, depth, partial=0, max_depth=0):
         yield None, [0]
 
         for k in range(1, max_depth):
@@ -13,7 +13,7 @@ class IntStrat(Strategy[int]):
 
 
 class StrStrat(Strategy[str]):
-    def generate(depth, partial='', max_depth=0):
+    def generate(self, depth, partial='', max_depth=0):
         m = min(max_depth, len(LETTERS))
 
         for k in LETTERS[:m]:

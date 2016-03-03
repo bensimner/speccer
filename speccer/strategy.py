@@ -61,15 +61,6 @@ def generate_args_from_generators(*generators):
     yield from map(tuple, poss)
 
 
-def generate(depth, typ, partial=None):
-    '''Generate some strategy of some depth
-    '''
-    strat = StratMeta.get_strat_instance(typ)
-    if partial:
-        yield from strat.generate(depth, partial=partial, max_depth=depth)
-    else:
-        yield from strat.generate(depth, max_depth=depth)
-
 def values(depth, typ, guard=None):
     '''Generate all results for some type 'typ'
     to depth 'depth'
@@ -77,6 +68,12 @@ def values(depth, typ, guard=None):
     Checking partials against 'guard' function
     '''
     strat = StratMeta.get_strat_instance(typ)
+    yield from strat_values(depth, strat, guard=guard)
+
+def strat_values(depth, strat, guard=None):
+    '''Generate all results for some `Strategy` 'strat'
+    up to depth 'depth'
+    '''
     yield from strat.values(depth, guard=guard)
 
 def given(*ts, **kws):
@@ -197,14 +194,67 @@ class StratMeta(abc.ABCMeta):
                 raise MissingStrategyError('Cannot get Strategy instance for ~{}, not a typing.Generic instance'.format(t))
         raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
 
+class StrategyIterator:
+    def __init__(self, strat):
+        self.strategy = strat
+        self._partials = collections.deque([(strat.initial(), 0)])
+        self._values = collections.deque()
+
+    def __next__(self):
+        '''Get the next element in the sequence
+        '''
+
+        if self._values:
+            return self._values.popleft()
+
+        if not self._partials:
+            raise StopIteration
+
+        max_depth = self.strategy._depth
+        guard = self.strategy._guard
+
+        partial, depth = self._partials.popleft()
+
+        if depth < max_depth:
+            trie = self.strategy.generate(depth, partial, max_depth=max_depth)
+            for p, l in trie:
+                l, l2 = itertools.tee(l)
+
+                if p and guard and not guard(p, *l):
+                    continue
+
+                l2 = list(l2)
+                if l2:
+                    self._values.extend(l2)
+
+                if p:
+                    self._partials.append((p, depth+1))
+
+        # now check for values
+        if self._values:
+            return self._values.popleft()
+
+        raise StopIteration
+
+    def __iter__(self):
+        return self
+    
+    def __repr__(self):
+        return 'StrategyInstance({})'.format(repr(self.strategy))
+
 class Strategy(metaclass=StratMeta): 
     '''A :class:`Strategy` is a method of generating values of some type
     in a deterministic, gradual way - building smaller values first
 
     In future: this will be a wrapper around a generator (defined by `Strategy.generate')
     '''
+    def __init__(self, max_depth, guard=None):
+        self._nodes = []
+        self._depth = max_depth
+        self._guard = guard
+
     @abc.abstractstaticmethod
-    def generate(depth, partial, max_depth):
+    def generate(depth, partial, *, max_depth):
         '''Generator for all values of depth 'depth'
         Starting with initial 'partial' value
         
@@ -215,6 +265,9 @@ class Strategy(metaclass=StratMeta):
 
         generate(partial=x, depth=depth) can then be yielded from
         to recrusively generate the trie (see :meth:`values`)
+
+        Finally, a `max_depth' parameter is passed to indicate the 
+        maximum depth 
         '''
 
     @classmethod
@@ -229,47 +282,21 @@ class Strategy(metaclass=StratMeta):
         return i.default
 
     @classmethod
-    def max_depth(cls):
-        '''Returns the initial 'partial' value from this :class:`Strategy`'s
-        :meth:`generate` method.
-        '''
-        s = inspect.signature(cls.generate)
-        i = s.parameters['max_depth']
-        if i.default is inspect._empty:
-            return None
-        return i.default
-
-    @classmethod
     def values(cls, depth, *, guard=None):
         '''Returns the list of values this :class:`Strategy` generates
         for some givne depth 'depth'
         '''
-        yield from cls._trie_to_list(cls.generate(depth=0, max_depth=depth), 0, depth, guard=guard)
+        return cls(depth, guard=guard)
 
-    @classmethod
-    def _trie_to_list(cls, trie, depth, max_depth, guard=None):
-        '''TODO:
-            Make this do IDS or breadth-first search
-        '''
+    def __iter__(self):
+        return StrategyIterator(self)
 
-        nodes = [(trie, depth)]
+    def __next__(self):
+        raise NotImplementedError
 
-        while len(nodes) > 0:
-            (trie, depth), *nodes = nodes
-
-            if depth < max_depth:
-                for p, l in trie:
-                    l, l_ = itertools.tee(l)
-
-                    if p and guard and not guard(p, *(yield from l_)):
-                        continue
-
-                    for v in l:
-                        yield v
-
-                    if p:
-                        t = cls.generate(depth + 1, partial=p, max_depth=max_depth)
-                        nodes.append((t, depth + 1))
+    def __repr__(self):
+        name = self.__class__.__name__
+        return '{}({})'.format(name, self._depth)
 
 def map_strategy(strat_instance_type, super_strat, **kwargs):
     '''Create a new strategy for 'strat_instance_type' by decorating a generator function
@@ -293,7 +320,7 @@ def map_strategy(strat_instance_type, super_strat, **kwargs):
     '''
     def decorator(f):
         class MapStrat(Strategy[strat_instance_type], **kwargs):
-            def generate(depth, max_depth=None, partial=super_strat.initial()):
+            def generate(self, depth, partial=super_strat.initial(), max_depth=None):
                 for k, vs in super_strat.generate(depth, partial=partial, max_depth=max_depth):
                     for v in vs:
                         yield k, f(depth, v, max_depth=max_depth)

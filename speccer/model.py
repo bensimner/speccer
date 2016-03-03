@@ -47,7 +47,6 @@ PartialArg.__repr__ = PartialArg_repr
 VAR_LENGTH = 1
 VAR_NAMES = list(values(VAR_LENGTH, str))
 
-
 def GET_VAR(i):
     global VAR_LENGTH, VAR_NAMES
     if i >= VAR_LENGTH:
