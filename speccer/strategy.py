@@ -233,6 +233,8 @@ class StrategyIterator:
         # now check for values
         if self._values:
             return self._values.popleft()
+        elif self._partials:
+            return self.__next__()
 
         raise StopIteration
 
@@ -241,6 +243,15 @@ class StrategyIterator:
     
     def __repr__(self):
         return 'StrategyInstance({})'.format(repr(self.strategy))
+
+    def copy(self):
+        '''Returns a copy of this Strategy instance at its current 
+        position
+        '''
+        si = StrategyInstance(self.strategy)
+        si._partials = self._partials.copy()
+        si._values = self._values.copy()
+        return si
 
 class Strategy(metaclass=StratMeta): 
     '''A :class:`Strategy` is a method of generating values of some type
@@ -319,9 +330,11 @@ def map_strategy(strat_instance_type, super_strat, **kwargs):
         yield - nat_to_int(nat)
     '''
     def decorator(f):
+        ss = super_strat(None) # do not iterate over
+
         class MapStrat(Strategy[strat_instance_type], **kwargs):
             def generate(self, depth, partial=super_strat.initial(), max_depth=None):
-                for k, vs in super_strat.generate(depth, partial=partial, max_depth=max_depth):
+                for k, vs in ss.generate(depth, partial=partial, max_depth=max_depth):
                     for v in vs:
                         yield k, f(depth, v, max_depth=max_depth)
         return MapStrat

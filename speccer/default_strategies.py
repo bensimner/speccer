@@ -11,6 +11,10 @@ class IntStrat(Strategy[int]):
         for k in range(1, max_depth):
             yield None, [k, -k]
 
+# overwrite the IntStrat to only generate [1] when asked
+class TestIntStrat(Strategy[int]):
+    def generate(self, depth, partial=0, max_depth=0):
+        yield None, [1]
 
 class StrStrat(Strategy[str]):
     def generate(self, depth, partial='', max_depth=0):
@@ -20,6 +24,6 @@ class StrStrat(Strategy[str]):
             s = partial + k
             yield s, [s]
 
-@map_strategy(None, IntStrat)
-def OtherIntStrat(d, i):
+@map_strategy(float, Strategy[int])
+def OtherIntStrat(d, i, max_depth=0):
     yield i

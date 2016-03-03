@@ -195,10 +195,9 @@ class ModelMeta(type):
                     continue
 
                 k, *ks = ks
-
                 types = list(k.param_types)
+                arg_tuples = collections.deque(value_args(max_depth, *types))
 
-                arg_tuples = collections.deque(value_args(depth, *types))
                 possible_replacements = collections.defaultdict(list)
                 var_t = collections.namedtuple('var', ['name'])
 
@@ -207,7 +206,6 @@ class ModelMeta(type):
                         if p.command.return_annotation is t:
                             if p.var is None:
                                 # go back and put a var on it
-                                partials2 = list(partials)
                                 partials2[i] = partials2[i]._replace(var=GET_VAR(var_count))
                                 open_list.append(([k]+ks, partials2, var_count+1))
                             else:
@@ -218,7 +216,6 @@ class ModelMeta(type):
 
                 while arg_tuples:
                     arg_tuple = arg_tuples.popleft()
-
                     for j, (v, t) in enumerate(zip(arg_tuple, types)):
                         if v is MissingStrategyError:
                             if t in possible_replacements:
@@ -226,6 +223,7 @@ class ModelMeta(type):
                                     arg_tuples.append(arg_tuple[:j] + (arg,) + arg_tuple[1+j:])
                                 continue
                             # go back and look for return type of `t' in partials
+                            # then try a different arg_tuple
                             go()
                             break
                     else:
@@ -236,7 +234,6 @@ class ModelMeta(type):
 
                         partial_args = list(map(get_partial, arg_tuple, types))
                         partial = Partial(k, partial_args, None)
-                        partials2 = list(partials)
                         partials2.append(partial) 
                         open_list.append((ks, partials2, var_count))
 
