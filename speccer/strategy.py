@@ -6,12 +6,23 @@ import inspect
 import itertools
 import functools
 import collections
+import logging
 import abc
+
+__all__ = ['MissingStrategyError', 
+            'value_args', 
+            'values', 
+            'given', 
+            'Strategy',
+            'has_strat_instance',
+            'get_strat_instance',
+            'map_strategy',
+]
 
 class MissingStrategyError(Exception):
     pass
 
-def value_args(depth, *types):
+def value_args(depth, *types): 
     '''Creates a `Strategy' which generates all tuples of type *types
     i.e. 
         value_args(1, str, int) ->
@@ -181,12 +192,11 @@ class StratMeta(abc.ABCMeta):
                 params = t.__parameters__
 
                 strat_origin = StratMeta.get_strat_instance(origin)
-                strat_params = list(map(StratMeta.get_strat_instance, params))
 
                 class _GenStrat(Strategy[t]):
-                    def generate(d, max_depth, partial=None):
-                        strat_gen = functools.partial(strat_origin.generate, d, max_depth, partial=partial)
-                        return strat_gen(*params)
+                    def generate(self, d, partial=strat_origin.initial(), max_depth=strat_origin.max_depth()):
+                        strat_gen = functools.partial(strat_origin.generate, d, partial=partial, max_depth=max_depth)
+                        yield from strat_gen(d, *params)
                 
                 StratMeta.__strats__[t] = _GenStrat
                 return _GenStrat
@@ -195,6 +205,8 @@ class StratMeta(abc.ABCMeta):
         raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
 
 class StrategyIterator:
+    log = logging.getLogger('strategy.iterator')
+
     def __init__(self, strat):
         self.strategy = strat
         self._partials = collections.deque([(strat.initial(), 0)])
@@ -208,6 +220,7 @@ class StrategyIterator:
             return self._values.popleft()
 
         if not self._partials:
+            self.log.debug('no more partials')
             raise StopIteration
 
         max_depth = self.strategy._depth
@@ -215,12 +228,13 @@ class StrategyIterator:
 
         partial, depth = self._partials.popleft()
 
-        if depth < max_depth:
+        if depth <= max_depth:
             trie = self.strategy.generate(depth, partial, max_depth=max_depth)
             for p, l in trie:
                 l, l2 = itertools.tee(l)
 
                 if p and guard and not guard(p, *l):
+                    self.log.debug('partial `{p}` failed guard'.format(p=p)) 
                     continue
 
                 l2 = list(l2)
@@ -228,11 +242,13 @@ class StrategyIterator:
                     self._values.extend(l2)
 
                 if p:
+                    self.log.debug('got partial `{p}` at depth {d}'.format(p=p, d=depth))
                     self._partials.append((p, depth+1))
 
         # now check for values
         if self._values:
             return self._values.popleft()
+
         elif self._partials:
             return self.__next__()
 
@@ -259,6 +275,9 @@ class Strategy(metaclass=StratMeta):
 
     In future: this will be a wrapper around a generator (defined by `Strategy.generate')
     '''
+
+    log = logging.getLogger('strategy')
+
     def __init__(self, max_depth, guard=None):
         self._nodes = []
         self._depth = max_depth
@@ -293,10 +312,23 @@ class Strategy(metaclass=StratMeta):
         return i.default
 
     @classmethod
+    def max_depth(cls):
+        '''Returns the initial 'max_depth' value from this :class:`Strategy`'s
+        :meth:`generate` method.
+        '''
+        s = inspect.signature(cls.generate)
+        i = s.parameters['max_depth']
+        if i.default is inspect._empty:
+            return None
+        return i.default
+
+    @classmethod
     def values(cls, depth, *, guard=None):
         '''Returns the list of values this :class:`Strategy` generates
         for some givne depth 'depth'
         '''
+        cls_name = cls.__name__
+        cls.log.debug('getting values for {cls_name} to depth {depth}'.format(cls_name=cls_name, depth=depth))
         return cls(depth, guard=guard)
 
     def __iter__(self):

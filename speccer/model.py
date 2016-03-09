@@ -31,7 +31,6 @@ s.t.
 def Partial_str(self):
     return self.command.name
 
-
 PartialArg = collections.namedtuple('PartialArg', ['value', 'name', 'annotation']) 
 '''A Partially applied argument
 here, name can be None meaning it is just a literal
@@ -198,7 +197,7 @@ class ModelMeta(type):
                 types = list(k.param_types)
                 arg_tuples = collections.deque(value_args(max_depth, *types))
 
-                possible_replacements = collections.defaultdict(list)
+                possible_replacements = collections.defaultdict(set)
                 var_t = collections.namedtuple('var', ['name'])
 
                 def go():
@@ -211,21 +210,25 @@ class ModelMeta(type):
                             else:
                                 # put that in arg_tuples
                                 arg = var_t(p.var)
-                                possible_replacements[t].append(arg)
+                                possible_replacements[t].add(arg)
                                 arg_tuples.append(arg_tuple[:j] + (arg,) + arg_tuple[(1+j):])
 
                 while arg_tuples:
                     arg_tuple = arg_tuples.popleft()
+
                     for j, (v, t) in enumerate(zip(arg_tuple, types)):
                         if v is MissingStrategyError:
                             if t in possible_replacements:
                                 for arg in possible_replacements[t]:
                                     arg_tuples.append(arg_tuple[:j] + (arg,) + arg_tuple[1+j:])
                                 continue
+
                             # go back and look for return type of `t' in partials
                             # then try a different arg_tuple
                             go()
                             break
+
+                        # TODO: another go()
                     else:
                         def get_partial(val, t):
                             if isinstance(val, var_t):

@@ -11,11 +11,6 @@ class IntStrat(Strategy[int]):
         for k in range(1, max_depth):
             yield None, [k, -k]
 
-# overwrite the IntStrat to only generate [1] when asked
-class TestIntStrat(Strategy[int]):
-    def generate(self, depth, partial=0, max_depth=0):
-        yield None, [1]
-
 class StrStrat(Strategy[str]):
     def generate(self, depth, partial='', max_depth=0):
         m = min(max_depth, len(LETTERS))
@@ -27,3 +22,17 @@ class StrStrat(Strategy[str]):
 @map_strategy(float, Strategy[int])
 def OtherIntStrat(d, i, max_depth=0):
     yield i
+
+try:
+    import typing
+except:
+    pass
+else:
+    class ListStrat(Strategy[typing.List]):
+        def generate(self, depth, t, partial=[], max_depth=0):
+            # start with empty list
+            if depth == 0:
+                yield None, [partial]
+
+            for v in values(depth, t):
+                yield partial+[v], [partial+[v]]

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import unittest
+import logging.config
 
 from speccer import *
 
@@ -45,6 +46,37 @@ def test_model():
         for cmd in cmds:
             print(pretty_str(cmd))
 
+from typing import List
+
+def runtests(debug=False):
+    logging.config.dictConfig({
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'default': {
+                'format': '[{asctime}] {levelname}, {name}: {message}',
+                'datefmt': '%Y/%m/%d %H:%M:%S',
+                'style': '{',
+            },
+        },
+
+        'handlers': {
+            'stdout': {
+                'class': 'logging.StreamHandler',
+                'level': 'DEBUG',
+                'formatter': 'default',
+                'stream': 'ext://sys.stdout',
+            },
+        },
+
+        'root': {
+            'level': 'DEBUG' if debug else 'INFO',
+            'handlers': ['stdout'],
+        },
+    })
+
+    #test_model()
+    unittest.main()
+
 if __name__ == '__main__':
-    #unittest.main()
-    test_model()
+    runtests(debug=False)
