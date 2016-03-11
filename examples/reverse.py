@@ -1,13 +1,11 @@
+import logging.config
+
 from speccer import *
 from typing import List
 
 def is_sorted(xs: List[int]) -> bool:
-    x, y = None, None
-    for a in xs:
-        if x and y and x > y:
-            return False
-        x, y = y, a
-    return True
+    # sorted either way
+    return list(sorted(xs)) == xs or list(reversed(sorted(xs))) == xs
 
 @Property
 def prop_sortedReversed(xs: List[int]):
