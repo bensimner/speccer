@@ -51,6 +51,8 @@ def spec(depth, prop, **options):
     n = 0
     
     for p in prop(depth, **options):
+        n += 1
+
         if not p.outcome:
             print('E')
             print('=' * N)
@@ -65,7 +67,6 @@ def spec(depth, prop, **options):
             break
         
         print('.', end='')
-        n += 1
         if n == N:
             print('')
     else:

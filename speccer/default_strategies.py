@@ -6,10 +6,10 @@ LETTERS = string.ascii_lowercase
 
 class IntStrat(Strategy[int]):
     def generate(self, depth, partial=0, max_depth=0):
-        yield None, [0]
-
-        for k in range(1, max_depth):
-            yield None, [k, -k]
+        if depth == 0:
+            yield 1, [0]
+        else:
+            yield partial+1, [partial, -partial]
 
 class StrStrat(Strategy[str]):
     def generate(self, depth, partial='', max_depth=0):
@@ -32,7 +32,7 @@ else:
         def generate(self, depth, t, partial=[], max_depth=0):
             # start with empty list
             if depth == 0:
-                yield None, [partial]
-
-            for v in values(depth, t):
-                yield partial+[v], [partial+[v]]
+                yield [], [[]]
+            else:
+                for v in values(depth, t):
+                    yield partial+[v], [partial+[v]]
