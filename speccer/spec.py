@@ -47,15 +47,16 @@ def spec(depth, prop, **options):
         prop = Property(prop)
         print('Done...')
 
-    N = 20
+    N = 40
     n = 0
     
     for p in prop(depth, **options):
         if not p.outcome:
             print('E')
-            print('-' * N)
+            print('=' * N)
             print('Failure after {n} calls'.format(n=n))
             print('In Property `{p}`'.format(p=str(p.source)))
+            print('-' * N)
             print('Found Counterexample:')
             print(' {}'.format(p.counter.argt))
             print('')
@@ -70,7 +71,7 @@ def spec(depth, prop, **options):
     else:
         print('')
         print('-' * N)
-        print('Finished')
+        print('Ran to {n} calls'.format(n=n))
         print('Found no counterexample to depth {d}'.format(d=depth))
         print('{n}/{n}'.format(n=n))
         print('')
@@ -137,7 +138,7 @@ class ModelProperty(Property):
         sig = inspect.signature(self._prop_func)
 
 # UnitTest style assertions
-def assertThat(f, *args, fmt='{name}({argv}) is False-y'):
+def assertThat(f, *args, fmt='{name}({argv}) is false'):
     s_args = ', '.join(map(repr,args))
     
     try:

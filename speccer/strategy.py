@@ -205,16 +205,18 @@ class StratMeta(abc.ABCMeta):
         raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
 
 class StrategyIterator:
-    log = logging.getLogger('strategy.iterator')
-
     def __init__(self, strat):
         self.strategy = strat
         self._partials = collections.deque([(strat.initial(), 0)])
         self._values = collections.deque()
 
+        name = str(strat)
+        self.log = logging.getLogger('strategy.iterator({})'.format(name))
+
     def __next__(self):
         '''Get the next element in the sequence
         '''
+        self.log.debug('next')
 
         if self._values:
             return self._values.popleft()
@@ -229,8 +231,11 @@ class StrategyIterator:
         partial, depth = self._partials.popleft()
 
         if depth <= max_depth:
+            # TODO: Try remove recursion here
+            # maybe by doing some memoization
             trie = self.strategy.generate(depth, partial, max_depth=max_depth)
             for p, l in trie:
+                self.log.debug('for partial `{p}`'.format(p=p)) 
                 l, l2 = itertools.tee(l)
 
                 if p and guard and not guard(p, *l):
@@ -241,9 +246,10 @@ class StrategyIterator:
                 if l2:
                     self._values.extend(l2)
 
-                if p:
+                if p is not None:
                     self.log.debug('got partial `{p}` at depth {d}'.format(p=p, d=depth))
                     self._partials.append((p, depth+1))
+                    self.log.debug('partials = {}'.format(self._partials))
 
         # now check for values
         if self._values:
