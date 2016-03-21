@@ -101,6 +101,7 @@ def validate_partials(initial_state=0):
 class Property:
     def __init__(self, f):
         self._prop_func = f
+        self.strategies = {}
 
     def check(self, depth):
         '''Check this property up to depth 'depth'
@@ -108,11 +109,17 @@ class Property:
 
         sig = inspect.signature(self._prop_func)
         types = list(map(lambda p: p[1].annotation, sig.parameters.items()))
-        args = strategy.value_args(depth, *types)
-        for argt in args:
-            if 'verbose' in self.options and self.options['verbose'] == True:
-                print('Trying', argt)
 
+        strats = []
+        for t in types:
+            with strategy.change_strategies(self.strategies):
+                if t in self.strategies:
+                    strats.append(self.strategies[t].values(depth))
+                else:
+                    strats.append(strategy.values(depth, t))
+
+        args = strategy.generate_args_from_strategies(*strats)
+        for argt in args:
             try:
                 v = self._prop_func(*argt)
                 if v == False:
@@ -121,6 +128,7 @@ class Property:
                 yield Result(False, Counter(argt), e._msg, self)
             else:
                 yield Result(True, None, None, None)
+
 
     def __str__(self):
         try:
@@ -131,7 +139,6 @@ class Property:
     def __call__(self, depth, **options):
         self.options = options
         yield from self.check(depth)
-
 
 class ModelProperty(Property):
     def check(self, depth):

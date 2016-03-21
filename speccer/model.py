@@ -132,13 +132,16 @@ class Command:
     def __repr__(self):
         return 'Command(fname={})'.format(self.name)
 
-def command(f):
+def command(*args):
     '''Decorator to make the function 'f' a :class:`Command`.
 
     Allowing easy definition of pre- and post- conditions as well as
     state transitions in a stateful model.
     '''
-    return Command(f)
+    def decorator(f):
+        return Command(f)
+
+    return decorator
 
 class ModelMeta(type):
     '''Metaclass of a :class:`Model`
@@ -159,14 +162,14 @@ class ModelMeta(type):
             '''A Strategy for generating all permutations of valid commands in a model
             '''
             @staticmethod
-            def generate(depth, partial=[], max_depth=None):
+            def generate(depth, partial=[]):
                 for k in cmds:
                     yield (partial+[k]), [partial+[k]]
 
         cls.__model_strat__ = _ModelStrat
 
-        @map_strategy(cls, _ModelStrat, autoregister=False)
-        def _PartialStrat(depth, cmds, max_depth):
+        @mapS(_ModelStrat, autoregister=False)
+        def _PartialStrat(depth, cmds):
             '''TODO:
             -   Partials should store returned values
             -       so things like 
@@ -195,7 +198,7 @@ class ModelMeta(type):
 
                 k, *ks = ks
                 types = list(k.param_types)
-                arg_tuples = collections.deque(value_args(max_depth, *types))
+                arg_tuples = collections.deque(value_args(depth, *types))
 
                 possible_replacements = collections.defaultdict(set)
                 var_t = collections.namedtuple('var', ['name'])
