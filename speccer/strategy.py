@@ -2,7 +2,6 @@
 # author: Ben Simner 
 
 import string
-import sys
 import inspect
 import itertools
 import functools
@@ -11,7 +10,8 @@ import contextlib
 import logging
 import abc
 
-sys.setrecursionlimit(40)
+import sys
+sys.setrecursionlimit(100)
 
 __all__ = ['MissingStrategyError', 
             'value_args', 
@@ -22,13 +22,9 @@ __all__ = ['MissingStrategyError',
             'mapS',
             'change_strategies',
             'implication',
-            'ImplicationException',
 ]
 
 class MissingStrategyError(Exception):
-    pass
-
-class ImplicationException(Exception):
     pass
 
 def implication(implication_function):
@@ -48,18 +44,17 @@ def implication(implication_function):
         @mapS(Strategy[param.annotation], autoregister=True)
         def newStrat(d, v, *args):
             if not implication_function(v):
-                raise ImplicationException
+                raise StopIteration
 
             yield v
 
-        
         p.strategies[param.annotation] = newStrat
         return p
 
     return decorator
 
 def values(depth, t):
-    yield from Strategy[t](depth)
+    yield from Strategy.get_strat_instance(t)(depth)
 
 @contextlib.contextmanager
 def change_strategies(strategies):
@@ -103,7 +98,7 @@ def value_args(depth, *types):
             (1, MissingStrategyError)
             (-1, MissingStrategyError)
     ''' 
-    yield from generate_args_from_strategies(*map(functools.partial(values, depth), types))
+    yield from generate_args_from_strategies(*list(map(lambda t: values(depth, t), types)))
 
 def generate_args_from_strategies(*strategies):
     '''Generates a list of n-tuples of `generators' generation instances
@@ -215,65 +210,32 @@ class StratMeta(abc.ABCMeta):
 
                 strat_origin = self.get_strat_instance(origin)
 
-                class _GenStrat(self.new(t)):
-                    def generate(self, d, *args, partial=strat_origin.initial()):
+                s = self.new(t)
+                class _GenStrat(s):
+                    def generate(self, d, *args):
                         strat_instance = strat_origin(d)
-                        yield from strat_instance.generate(d, *(params + args), partial=partial)
+                        yield from strat_instance.generate(d, *(params + args))
                 
+                _GenStrat.__name__ = 'Gen_{}'.format(str(s))
                 StratMeta._current_strategies[t] = _GenStrat
                 return _GenStrat
             except AttributeError:
                 raise MissingStrategyError('Cannot get Strategy instance for ~{}, not a typing.Generic instance'.format(t))
         raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
 
+
 class StrategyIterator:
     def __init__(self, strat):
+        self.strategy = strat
+        self._generator = strat.generate(strat._depth)
+
         name = str(strat)
         self.log = logging.getLogger('strategy.iterator({})'.format(name))
 
-        self.strategy = strat
-        self._partials = collections.deque([(strat.initial(), 0)])
-        self._values = collections.deque()
-        self._next_generator = self.next_generator()
-
-    def next_generator(self):
-        max_depth = self.strategy._depth
-
-        while True:
-            if not self._partials:
-                break
-
-            partial, depth = self._partials.popleft()
-
-            if depth <= max_depth:
-                # TODO: Try remove recursion here
-                # maybe by doing some memoization
-                trie = iter(self.strategy.generate(depth, partial=partial))
-                while True:
-                    try:
-                        p, l = next(trie)
-                        l, l2 = itertools.tee(l)
-                        l2 = list(l2)
-                    except ImplicationException:
-                        continue
-                    except StopIteration:
-                        break
-                    else:
-                        self.log.debug('for partial `{p}`'.format(p=p)) 
-
-                        if l2:
-                            yield from l2
-
-                        if p is not None: 
-                            self.log.debug('got partial `{p}` at depth {d}'.format(p=p, d=depth))
-                            self._partials.append((p, depth+1))
-                            self.log.debug('partials = {}'.format(self._partials))
-
     def __next__(self):
-        '''Get the next element in the sequence
-        '''
-        self.log.debug('next')
-        return next(self._next_generator)
+        if self.strategy._depth > 0:
+            return next(self._generator)
+        raise StopIteration
 
     def __iter__(self):
         return self
@@ -281,64 +243,41 @@ class StrategyIterator:
     def __repr__(self):
         return 'StrategyInstance({})'.format(repr(self.strategy))
 
-    def copy(self):
-        '''Returns a copy of this Strategy instance at its current 
-        position
-        '''
-        si = StrategyInstance(self.strategy)
-        si._partials = self._partials.copy()
-        si._values = self._values.copy()
-        return si
-
 class Strategy(metaclass=StratMeta): 
     '''A :class:`Strategy` is a method of generating values of some type
     in a deterministic, gradual way - building smaller values first
 
     In future: this will be a wrapper around a generator (defined by `Strategy.generate')
     '''
-
     log = logging.getLogger('strategy')
 
     def __init__(self, max_depth):
+        self.log.debug('new({})'.format(max_depth))
         self._nodes = []
         self._depth = max_depth
 
-    def values(self, depth, *args, partial):
-        for _, v in self.generate(depth, *args, partial=partial):
-            yield from v
+    def cons(self, f):
+        '''Basically, takes some function `f`
+        looks at its type signature
+        and then creates (and yields from) a strategy to generate inputs to that function
 
-    def cons(self, strat):
-        '''Is essentially the same as ``yield from strat(self._depth - 1)``
+        i..e
         '''
-        yield from strat(self._depth - 1)
+        sig = inspect.signature(f)
+        types = list(map(lambda p: p[1].annotation, sig.parameters.items()))
+
+        strats = [Strategy.get_strat_instance(t)(self._depth - 1) for t in types]
+        args = list(generate_args_from_strategies(*strats))
+
+        for argt in args:
+            yield f(*argt)
 
     @abc.abstractmethod
-    def generate(self, depth, *args, partial):
+    def generate(self, depth, *args):
         '''Generator for all values of depth 'depth'
-        Starting with initial 'partial' value
-        
-        Returns a generator of pairs x, y
-        where 
-            x = child node
-            y = list of partial results
 
-        generate(partial=x, depth=depth) can then be yielded from
-        to recrusively generate the trie (see :meth:`values`)
-
-        Finally, a `max_depth' parameter is passed to indicate the 
-        maximum depth 
+        Allows extra args for higher-kinded types
         '''
-
-    @classmethod
-    def initial(cls):
-        '''Returns the initial 'partial' value from this :class:`Strategy`'s
-        :meth:`generate` method.
-        '''
-        s = inspect.signature(cls.generate)
-        i = s.parameters['partial']
-        if i.default is inspect._empty:
-            return None
-        return i.default
 
     def __iter__(self):
         return StrategyIterator(self)
@@ -366,13 +305,9 @@ def mapS(strat, register_type=None, autoregister=False, **kwargs):
     '''
     def decorator(f):
         class MapStrat(strat, **kwargs):
-            def generate(self, depth, *args, partial=strat.initial()):
-                for k, vs in strat.generate(super(), depth, *args, partial=partial):
-                    def _generator():
-                        for v in vs:
-                            yield from f(depth, v, *args)
-
-                    yield k, _generator()
+            def generate(self, depth, *args):
+                for v in strat.generate(self, depth, *args):
+                    yield from f(depth, v, *args)
 
         if register_type:
             register(register_type, MapStrat)

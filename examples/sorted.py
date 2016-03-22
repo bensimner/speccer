@@ -19,11 +19,11 @@ if __name__ == '__main__':
 '''
 Sample Output:
 
-.............
+...............
 ----------------------------------------
-Ran to 13 calls
+Ran to 15 calls
 Found no counterexample to depth 3
-13/13
+15/15
 
 OK
 '''

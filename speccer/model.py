@@ -5,6 +5,7 @@ import collections
 import itertools
 import inspect
 import functools
+from typing import List
 from pprint import pprint
 
 from .strategy import *
@@ -43,14 +44,15 @@ def PartialArg_repr(self):
 
 PartialArg.__repr__ = PartialArg_repr
 
-VAR_LENGTH = 1
+VAR_LENGTH = 3
 VAR_NAMES = list(values(VAR_LENGTH, str))
 
 def GET_VAR(i):
     global VAR_LENGTH, VAR_NAMES
-    if i >= VAR_LENGTH:
+    if i >= len(VAR_NAMES):
         VAR_LENGTH += 1
         VAR_NAMES = list(values(VAR_LENGTH, str))
+    
     return VAR_NAMES[i]
 
 def pretty_str(partial: Partial) -> str:
@@ -149,26 +151,28 @@ class ModelMeta(type):
     '''
 
     def __new__(mcls, name, bases, namespace):
-        cmds = set()
+        cmds = list()
 
         for name,value in namespace.items():
             if isinstance(value, Command):
-                cmds.add(value)
+                cmds.append(value)
 
         cls = super().__new__(mcls, name, bases, namespace)
-        cls.__modelcommands__ = frozenset(cmds)
+        cls.__modelcommands__ = tuple(cmds)
 
-        class _ModelStrat(Strategy[cls]):
+        cls_cmd = type('{}_Commands'.format(str(cls)))
+
+        class _CmdStrat(Strategy[cls_cmd]):
             '''A Strategy for generating all permutations of valid commands in a model
             '''
-            @staticmethod
-            def generate(depth, partial=[]):
+            def generate(self, depth):
                 for k in cmds:
-                    yield (partial+[k]), [partial+[k]]
+                    yield k
 
+        _ModelStrat = Strategy[List[cls_cmd]]
         cls.__model_strat__ = _ModelStrat
 
-        @mapS(_ModelStrat, autoregister=False)
+        @mapS(_ModelStrat, register_type=cls)
         def _PartialStrat(depth, cmds):
             '''TODO:
             -   Partials should store returned values
@@ -193,11 +197,14 @@ class ModelMeta(type):
                 partials2 = list(partials)
 
                 if ks == []:
+                    print('partials! = ', partials)
                     yield partials
                     continue
 
                 k, *ks = ks
+                print(k)
                 types = list(k.param_types)
+                print(types)
                 arg_tuples = collections.deque(value_args(depth, *types))
 
                 possible_replacements = collections.defaultdict(set)
