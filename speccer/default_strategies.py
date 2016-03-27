@@ -1,6 +1,6 @@
 import string
 try:
-    import typing
+    from typing import List, T
 except ImportError:
     print('E: Cannot locate `typing`')
     print('E: Expected Python3.5 or greater')
@@ -18,9 +18,9 @@ class IntStrat(Strategy[int]):
             yield i
             yield -i
 
-class ListStrat(Strategy[typing.List[typing.T]]):
+class ListStrat(Strategy[List[T]]):
     def generate(self, depth, t, partial=[]):
-        def mk_list(a: t, b: typing.List[t]) -> typing.List[t]:
+        def mk_list(a: t, b: List[t]) -> List[t]:
             return [a] + b
 
         yield []
@@ -32,7 +32,8 @@ class StrStrat(Strategy[str]):
         yield from LETTERS[:m]
 
 # DEBUG
-if False:
+if True:
     class SimpleIntStrat(IntStrat):
         def generate(self, depth, partial=0):
+            yield 0
             yield 1

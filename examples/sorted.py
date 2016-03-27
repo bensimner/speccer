@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from speccer import *
 from typing import T, List
 

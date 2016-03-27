@@ -2,7 +2,10 @@ import inspect
 import collections
 import logging
 
-from . import strategy
+from .types import *
+from .import strategy
+from .import model
+
 __all__ = ['spec',
         'assertTrue',
         'assertFalse',
@@ -14,16 +17,10 @@ __all__ = ['spec',
         'assertIsInstance',
         'assertIsNotInstance',
         'Property',
-        'ModelProperty',
-        'AssertionFailure',
 ]
 
 Counter = collections.namedtuple('Counter', ['argt'])
 Result = collections.namedtuple('Result', ['outcome', 'counter', 'reason', 'source'])
-
-class AssertionFailure(Exception):
-    def __init__(self, msg):
-        self._msg = msg
 
 def _assert(p, m):
     if p:
@@ -50,20 +47,33 @@ def spec(depth, prop, **options):
     N = 40
     n = 0
     
-    for p in prop(depth, **options):
+    for result in prop(depth, **options):
         n += 1
 
-        if not p.outcome:
+        if not result.outcome:
             print('E')
             print('=' * N)
-            print('Failure after {n} calls'.format(n=n))
-            print('In Property `{p}`'.format(p=str(p.source)))
+
+            if strategy.FAILED_IMPLICATION:
+                print('Failure after {n} calls ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
+            else:
+                print('Failure after {n} calls'.format(n=n))
+
+            print('In Property `{p}`'.format(p=str(result.source)))
             print('-' * N)
             print('Found Counterexample:')
-            print(' {}'.format(p.counter.argt))
+            if len(result.counter.argt) == 1:
+                if isinstance(result.counter.argt[0], model.Partials):
+                    s = model.pretty_partials(result.counter.argt[0], sep='\n> ', return_annotation=False)
+                    print('> {}'.format(s))
+                else:
+                    s = str(result.counter.argt[0])
+                    print(' {}'.format(s))
+            else:
+                print(' {}'.format(str(result.counter.argt)))
             print('')
             print('Reason:')
-            print(' {}'.format(p.reason))
+            print(' {}'.format(result.reason))
             break
         
         print('.', end='')
@@ -72,51 +82,40 @@ def spec(depth, prop, **options):
     else:
         print('')
         print('-' * N)
-        print('Ran to {n} calls'.format(n=n))
+        if strategy.FAILED_IMPLICATION:
+            print('Ran to {n} calls ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
+        else:
+            print('Ran to {n} calls'.format(n=n))
         print('Found no counterexample to depth {d}'.format(d=depth))
         print('{n}/{n}'.format(n=n))
         print('')
         print('OK')
-
-def validate_partials(initial_state=0):
-    '''validate the state transitions
-    '''
-    current_state = initial_state
-
-    while True:
-        partial = yield
-        cmd = partial.command
-        args = partial.args
-
-        if not cmd.fpre(current_state, args):
-            raise StopIteration
-
-        # yield the value from this partial
-        v = yield
-        current_state = cmd.fnext(args, v)
-        
-        if not cmd.fpost(args, v):
-            raise StopIteration
 
 class Property:
     def __init__(self, f):
         self._prop_func = f
         self.strategies = {}
 
+    @property
+    def params(self):
+        sig = inspect.signature(self._prop_func)
+        for p in sig.parameters.items():
+            yield p
+
     def check(self, depth):
         '''Check this property up to depth 'depth'
         '''
-
-        sig = inspect.signature(self._prop_func)
-        types = list(map(lambda p: p[1].annotation, sig.parameters.items()))
+        # number of failed implications comes from the strategy module
+        # might do this a better way?
+        global FAILED_IMPLICATION
+        FAILED_IMPLICATION = 0
+        types = list(map(lambda p: p[1].annotation, self.params))
 
         strats = []
-        for t in types:
-            with strategy.change_strategies(self.strategies):
-                if t in self.strategies:
-                    strats.append(self.strategies[t].values(depth))
-                else:
-                    strats.append(strategy.values(depth, t))
+        with strategy.change_strategies(self.strategies):
+            for t in types:
+                strat = strategy.get_strat_instance(t)
+                strats.append(strat(depth))
 
         args = strategy.generate_args_from_strategies(*strats)
         for argt in args:
@@ -126,6 +125,8 @@ class Property:
                     yield Result(False, Counter(argt), 'Property returned False', self)
             except AssertionFailure as e:
                 yield Result(False, Counter(argt), e._msg, self)
+            except Exception as e:
+                yield Result(False, Counter(argt), e, self)
             else:
                 yield Result(True, None, None, None)
 
@@ -139,11 +140,6 @@ class Property:
     def __call__(self, depth, **options):
         self.options = options
         yield from self.check(depth)
-
-class ModelProperty(Property):
-    def check(self, depth):
-        # get signature of model
-        sig = inspect.signature(self._prop_func)
 
 # UnitTest style assertions
 def assertThat(f, *args, fmt='{name}({argv}) is false'):

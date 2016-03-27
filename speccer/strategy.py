@@ -11,46 +11,66 @@ import logging
 import abc
 
 import sys
-sys.setrecursionlimit(100)
 
-__all__ = ['MissingStrategyError', 
+from .types import *
+FAILED_IMPLICATION = 0
+sys.setrecursionlimit(100)
+log = logging.getLogger('strategy')
+
+__all__ = [
             'value_args', 
             'values',
             'Strategy',
             'register',
             'has_strat_instance',
+            'get_strat_instance',
             'mapS',
             'change_strategies',
             'implication',
 ]
 
-class MissingStrategyError(Exception):
-    pass
-
 def implication(implication_function):
     sig = inspect.signature(implication_function)
-    
-    # enforce unary functions
-    if len(sig.parameters) != 1:
-        raise ValueError('`implication` expected function of 1 parameter')
+    impl_name = implication_function.__name__
 
-    for param in sig.parameters.values():
+    for param in itertools.islice(sig.parameters.values(), 1):
         pass
 
-    if param.annotation is sig.empty:
-        raise ValueError('`implication` expected non-empty annotation for parameter `{}`'.format(param.name))
+    t = param.annotation
+    if t is sig.empty:
+        t = None
+        log.debug('implication: `{}` missing type-annotation for parameter: `{}`'.format(impl_name, param.name)) 
 
     def decorator(p):
-        @mapS(Strategy[param.annotation], autoregister=True)
+        nonlocal t
+        if t is None:
+            params = list(p.params)
+            if len(params) != 1:
+                err_msg = 'implication: `{}`, for property `{}`, cannot infer type -- requires 1 parameter'.format(impl_name, p)
+                log.error(err_msg)
+                raise ValueError(err_msg)
+
+            pname, param = params[0]
+            t = param.annotation
+            log.debug('implication: `{}` defaulting (`{}`:{})'.format(impl_name, pname, t)) 
+
+        @mapS(Strategy[t])
         def newStrat(d, v, *args):
-            if not implication_function(v):
+            global FAILED_IMPLICATION
+            nonlocal t
+            try:
+                if implication_function(v) == False:
+                    FAILED_IMPLICATION += 1
+                    raise StopIteration
+            except AssertionFailure:
+                FAILED_IMPLICATION += 1
                 raise StopIteration
 
             yield v
 
-        p.strategies[param.annotation] = newStrat
+        newStrat.__name__ = implication_function.__name__ 
+        p.strategies[t] = newStrat
         return p
-
     return decorator
 
 def values(depth, t):
@@ -127,12 +147,17 @@ def generate_args_from_strategies(*strategies):
 
 def has_strat_instance(t):
     try:
-        StratMeta.get_strat_instance(t)
+        Strategy.get_strat_instance(t)
         return True
     except MissingStrategyError:
         return False
 
     raise ValueError(t)
+
+def get_strat_instance(t):
+    '''Gets the strategy instance registered to some type 't'
+    '''
+    return Strategy.get_strat_instance(t)
 
 def register(t, strategy, override=True):
     '''Register a :class:`Strategy` instance for 
@@ -211,14 +236,15 @@ class StratMeta(abc.ABCMeta):
                 strat_origin = self.get_strat_instance(origin)
 
                 s = self.new(t)
-                class _GenStrat(s):
-                    def generate(self, d, *args):
-                        strat_instance = strat_origin(d)
-                        yield from strat_instance.generate(d, *(params + args))
-                
-                _GenStrat.__name__ = 'Gen_{}'.format(str(s))
-                StratMeta._current_strategies[t] = _GenStrat
-                return _GenStrat
+                def generate(self, d, *args):
+                    strat_instance = strat_origin(d)
+                    yield from strat_instance.generate(d, *(params + args))
+
+                name = 'Generated_{}[{}]'.format(strat_origin.__name__, tuple(map(lambda p: p.__name__, params)))
+                GenStrat = type(name, (s,), dict(generate=generate))
+                GenStrat.__module__ = strat_origin.__module__
+                StratMeta._current_strategies[s] = GenStrat
+                return GenStrat
             except AttributeError:
                 raise MissingStrategyError('Cannot get Strategy instance for ~{}, not a typing.Generic instance'.format(t))
         raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
@@ -285,13 +311,16 @@ class Strategy(metaclass=StratMeta):
     def __next__(self):
         raise NotImplementedError
 
+    def __str__(self):
+        return self.__class__.__name__
+
     def __repr__(self):
         name = self.__class__.__name__
         return '{}({})'.format(name, self._depth)
 
 def mapS(strat, register_type=None, autoregister=False, **kwargs):
     '''
-    Maps some function over a strategies values.
+    Maps some function over a Strategy _class_.
     To automatically register the new strategy either set 
         autoregister=True   overwrite the old strategy with this one
         register_type=t     register this strategy for type 't'
@@ -304,14 +333,17 @@ def mapS(strat, register_type=None, autoregister=False, **kwargs):
     NewIntStrat(3) ~= ['new(0)', 'new(1)', 'new(-1)', 'new(2)', 'new(-2)', 'new(3)', 'new(-3)']
     '''
     def decorator(f):
-        class MapStrat(strat, **kwargs):
+        class MapStrat(strat, autoregister=autoregister, **kwargs):
             def generate(self, depth, *args):
                 for v in strat.generate(self, depth, *args):
                     yield from f(depth, v, *args)
 
+        name = 'Mapped[{}]_{}'.format(f.__name__, strat.__name__)
+
         if register_type:
             register(register_type, MapStrat)
 
-        MapStrat.__name__ = 'Mapped_{}'.format(strat.__name__)
+        MapStrat.__name__ = f.__name__
+        MapStrat.__module__ = strat.__module__
         return MapStrat
     return decorator

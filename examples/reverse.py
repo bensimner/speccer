@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from speccer import *
 from typing import T, List
 
@@ -26,8 +27,8 @@ Failure after 6 calls
 In Property `prop_sortedReversed`
 ----------------------------------------
 Found Counterexample:
-     ([0, 1],)
+ ([0, 1],)
 
-     Reason:
-      is_sorted([1, 0]) is false
+Reason:
+ is_sorted([1, 0]) is false
 '''
