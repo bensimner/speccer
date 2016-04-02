@@ -8,6 +8,7 @@ import functools
 import logging
 from typing import List
 
+from .spec import _assert
 from .strategy import *
 from .types import *
 from . import default_strategies as default
@@ -15,10 +16,10 @@ from . import default_strategies as default
 def empty(self, *_):
     return True
 
-def empty_state(state, args, v):
+def empty_state(self, args, v):
     '''the empty state transition function
     '''
-    return state
+    return self.state
 
 def empty_ctor():
     return 0
@@ -31,12 +32,74 @@ arguments and string variable name 'var'
 '''
 
 class Partials:
-    def __init__(self, partials=[]):
+    def __init__(self, model, partials=[]):
         self._partials = partials
+        self.model = model
+        self.values = None
+
+    def validate(self):
+        '''Check that the cmds type check
+        '''
+        log.debug('* validate{{{}}}'.format(pretty_partials(self, sep=';', return_annotation=False)))
+        self.model.reset_state()
         self.values = []
 
+        def unwrap_args(args):
+            for a in args:
+                if isinstance(a.value, ModelMeta.replacement_t):
+                    yield self.values[a.value.n]
+                else:
+                    yield a.value
+
+        for partial in self._partials:
+            cmd = partial.command
+            args = tuple(unwrap_args(partial.args))
+            log.debug('validate({} : {})'.format(cmd, args))
+
+            try:
+                if cmd.fpre(self.model, args) == False:
+                    log.debug('*** FAIL: Pre-condition False')
+                    return False
+            except AssertionFailure as e:
+                log.debug('*** FAIL: Pre-condition AssertionFailure')
+                log.debug('*** {}'.format(e))
+                return False
+
+            try:
+                v = cmd.fdo(*args) # maybe add `self.model' ?
+            except AssertionFailure as e:
+                e._info['src'] = '{}_execute'.format(cmd.name)
+                raise
+
+            self.values.append(v)
+            
+            try:
+                if cmd.fpost(self.model, args, v) == False:
+                    log.debug('*** FAIL: Post-condition False')
+                    return False
+            except AssertionFailure as e:
+                e._info['src'] = '{}_postcondition'.format(cmd.name)
+                raise
+        
+            # if passes post-condition, advance to next state
+            self.model.state = cmd.fnext(self.model, args, v)
+
+        log.debug('*** PASS: Valid')
+        return True
+
+    def __getitem__(self, i):
+        return self._partials[i]
+
     def __repr__(self):
-        return pretty_partials(self._partials, values=self.values, return_annotation=True, sep='\n')
+        if self._partials == []:
+            return '<empty>'
+        return pretty_partials(self, return_annotation=False, sep=';')
+
+    @property
+    def pretty(self):
+        if self._partials == []:
+            return '<empty>'
+        return pretty_partials(self, values=self.values, sep='\n> ', return_annotation=False)
 
     def __iter__(self):
         return iter(self._partials)
@@ -65,35 +128,38 @@ def GET_VAR(i):
     
     return VAR_NAMES[i]
 
-def pretty_str(partial: Partial, value=None, return_annotation=True) -> str:
-    name = partial.command.name
-    var = partial.var
-    args = partial.args
-    
-    s = name
-    s = '{s}({})'.format(', '.join(map(str, args)), s=s)
-
-    if var:
-        s = '{var} = {s}'.format(var=var, s=s)
-
-    if return_annotation and partial.command.return_annotation:
-        s = '{s} :: {rt}'.format(s=s, rt=partial.command.return_annotation.__name__)
-
-    if value:
-        s = '{s} -> {v}'.format(s=s, v=value)
-
-    return s
-
 def pretty_partials(partials, values=None, return_annotation=True, sep='; '):
+    def pretty_str(partial, value=None) -> str:
+        name = partial.command.name
+        var = partial.var
+        args = partial.args
+        
+        s = name
+        li_args = []
+        for a in args:
+            if isinstance(a.value, ModelMeta.replacement_t):
+                li_args.append(partials[a.value.n].var)
+            else:
+                li_args.append(str(a))
+
+        s = '{s}({})'.format(', '.join(li_args), s=s)
+
+        if var:
+            s = '{var} = {s}'.format(var=var, s=s)
+
+        if return_annotation and partial.command.return_annotation:
+            s = '{s} :: {rt}'.format(s=s, rt=partial.command.return_annotation.__name__)
+
+        if values:
+            s = '{s} -> {v}'.format(s=s, v=value)
+
+        return s
+
     if values is None:
-        return sep.join(map(functools.partial(pretty_str, return_annotation=return_annotation), partials))
+        return sep.join(map(pretty_str, partials))
 
-    return sep.join(pretty_str(p, value=v, return_annotation=return_annotation) for p, v in zip(partials, values))
+    return sep.join(pretty_str(p, value=v) for p, v in zip(partials, values))
 
-#TODO:
-# split this up so that a Model has a single pre/post/next method
-# that the command references.
-# so that a model can be passed around instead of command/partial lists?
 class Command:
     '''An @property like :class:`Command`
     It acts like @property except instead of getter and setter
@@ -182,11 +248,14 @@ class ModelMeta(type):
             if isinstance(value, Command):
                 cmdlist.append(value)
 
+        cmdlist = sorted(cmdlist, key=lambda c: c.name)
         cls = super().__new__(mcls, name, bases, namespace)
         cls.__modelcommands__ = tuple(cmdlist)
 
-        cls_cmd = type('{}_Commands'.format(cls), (), {})
-        class _CmdStrat(Strategy[cls_cmd]):
+        cls.Command = type('{}_Command'.format(cls), (), {})
+        cls.Commands = type('{}_Calls'.format(cls), (), {})
+
+        class _CmdStrat(Strategy[cls.Command]):
             '''A Strategy for generating all permutations of valid commands in a model
             '''
             def generate(self, depth):
@@ -226,8 +295,11 @@ class ModelMeta(type):
                     new_replacements[k.return_annotation].append(ModelMeta.replacement_t(len(partials)))
                     yield from _generate_partials(depth, ks, partials + [partial], new_replacements)
 
-        @mapS(Strategy[List[cls_cmd]], register_type=cls)
-        def _PartialStrat(depth, cmds: List[cls_cmd]):
+        @mapS(Strategy[List[cls.Command]], register_type=cls.Commands)
+        def _PartialStrat(depth, cmds):
+            log.debug('_PartialStrat')
+            #print('PartialStrat{{{}}}'.format(cmds))
+
             for partials in _generate_partials(depth, cmds, []):
                 var_c = 0
                 partials = list(partials) 
@@ -249,56 +321,7 @@ class ModelMeta(type):
                             new_args = list(p.args)
                             new_args[j] = a._replace(name=var)
                             partials[i] = p._replace(args=new_args)
-                yield Partials(partials)
-
-        @mapS(Strategy[List[cls_cmd]])
-        def _PartialStrat2(depth, cmds):
-            '''TODO:
-            -   Partials should store returned values
-            -       so things like 
-                                    > a <- new(3) -> Queue(size=3)
-                                    > enqueue(a, 1) -> None
-                                    > dequeue(a) -> 1
-            -       are possible to generate
-            - also force use of previously generated values for arguments with no Strategy instance
-            '''
-            # get list of generators for each paramater
-            # for each command in the given partial list of commands
-            open_list = collections.deque()
-
-            initial = (cmds, [], 0)
-            open_list.append(initial)
-
-            while open_list:
-                pp = (ks, partials, var_count) = open_list.popleft()
-                partials2 = list(partials) # shallow copy
-
-                if ks == []:
-                    yield partials
-                    continue
-
-                k, *ks = ks
-                types = list(k.param_types)
-                arg_tuples = collections.deque(value_args(depth, *types))
-
-                while arg_tuples:
-                    arg_tuple = arg_tuples.popleft()
-                    for j, (v, t) in enumerate(zip(arg_tuple, types)):
-                        if v is MissingStrategyError:
-                            go(pp, j, arg_tuple=arg_tuple, open_list=open_list, t=t, arg_tuples=arg_tuples)
-                            break # don't allow a MisingStrategyError value to filter through
-                        else:
-                            pass # TODO: Maybe look up anyway? maybe too computationally expensive - possible loop
-                    else:
-                        def get_partial(val, t):
-                            if isinstance(val, ModelMeta.var_t):
-                                return PartialArg(None, val.name, t)
-                            return PartialArg(val, None, t)
-
-                        partial_args = list(map(get_partial, arg_tuple, types))
-                        partial = Partial(k, partial_args, None)
-                        partials2.append(partial) 
-                        open_list.append((ks, partials2, var_count))
+                yield Partials(cls(), partials)
 
         cls.__partial_strat__ = _PartialStrat
         return cls
@@ -307,76 +330,8 @@ class Model(object, metaclass=ModelMeta):
     '''A :class:`Model` is some state-machine model of 
     some arbitrary API
     '''
+    def __init__(self):
+        self.reset_state()
 
-    def __init__(self, initial_state=empty_ctor):
-        self.initial_state = initial_state()
-        self.state = self.initial_state
-
-    @classmethod
-    def commands(cls, d):
-        '''see :meth:`commands`
-
-        Internally this method creates a generator which operators in pairs
-        recieving a state and then yielding a valid `Partial`
-
-        if no such pair exists (i.e. no valid transitions from current state)
-        a StopIteration exception is thrown and the generator can cease normally.
-
-        The generator determines the arguments to generate from the given model Strategy instance
-        'model_strategy' which generates all commands up to a certain depth
-        TODO: that.
-        '''
-
-        model_strategy = StratMeta.get_strat_instance(cls)
-        yield from model_strategy.values(d)
-
-
-def is_valid(partials, initial=empty_ctor):
-    '''Returns `True` if 'partials' is valid for initial state 'initial()'
-    in the model.
-    '''
-    log.debug('** validate{%s}' % pretty_partials(partials, sep='; '))
-    current_state = initial()
-    partials.values = []
-
-    def unwrap_args(args):
-        log.debug('unrwap_args{{{}}}'.format(list(map(str, args))))
-        for a in args:
-            log.debug('unrwap{{{}}}'.format(repr(a)))
-            if isinstance(a.value, ModelMeta.replacement_t):
-                yield partials.values[a.value.n]
-            else:
-                yield a.value
-
-    for partial in partials:
-        cmd = partial.command
-        args = tuple(unwrap_args(partial.args))
-
-        try:
-            if cmd.fpre(current_state, args) == False:
-                log.debug('*** FAIL: Pre-condition False')
-                return False
-        except AssertionFailure:
-            log.debug('*** FAIL: Pre-condition AssertionFailure')
-            return False
-        except Exception:
-            log.debug('*** FAIL: Pre-condition Exception')
-            return False
-
-        v = cmd.fdo(*args)
-        partials.values.append(v)
-        current_state = cmd.fnext(current_state, args, v)
-        
-        try:
-            if cmd.fpost(current_state, args, v) == False:
-                log.debug('*** FAIL: Post-condition False')
-                return False
-        except AssertionFailure:
-            log.debug('*** FAIL: Post-condition AssertionFailure')
-            return False
-        except Exception:
-            log.debug('*** FAIL: Post-condition Exception')
-            return False
-    
-    log.debug('*** PASS: Valid')
-    return True
+    def reset_state(self):
+        self.state = self._STATE

@@ -1,20 +1,21 @@
 # strategy.py - Strategies for producing arguments to model commands
 # author: Ben Simner 
 
+import abc
+import sys
+import math
+import heapq
 import string
+import logging
 import inspect
 import itertools
 import functools
-import collections
 import contextlib
-import logging
-import abc
-
-import sys
+import collections
 
 from .types import *
+
 FAILED_IMPLICATION = 0
-sys.setrecursionlimit(100)
 log = logging.getLogger('strategy')
 
 __all__ = [
@@ -57,16 +58,15 @@ def implication(implication_function):
         @mapS(Strategy[t])
         def newStrat(d, v, *args):
             global FAILED_IMPLICATION
-            nonlocal t
             try:
                 if implication_function(v) == False:
                     FAILED_IMPLICATION += 1
                     raise StopIteration
-            except AssertionFailure:
-                FAILED_IMPLICATION += 1
-                raise StopIteration
-
-            yield v
+            except AssertionFailure as e:
+                e._info['value'] = v
+                raise
+            else:
+                yield v
 
         newStrat.__name__ = implication_function.__name__ 
         p.strategies[t] = newStrat
@@ -118,32 +118,140 @@ def value_args(depth, *types):
             (1, MissingStrategyError)
             (-1, MissingStrategyError)
     ''' 
-    yield from generate_args_from_strategies(*list(map(lambda t: values(depth, t), types)))
+    yield from generate_args_from_strategies(*map(lambda t: values(depth, t), types))
 
-def generate_args_from_strategies(*strategies):
-    '''Generates a list of n-tuples of `generators' generation instances
-    (i.e. permutations of `generators')
+def _pairs(n=2):
+    '''Perform a memoized breadth-first search through the
+    tuples of length n
     '''
-    type_gen = collections.deque(strategies)
-    poss = collections.deque()
-    poss.append([])
-    new_poss = collections.deque()
-    
-    while type_gen:
-        gen = type_gen.popleft()
+    t = tuple(0 for _ in range(n))
+    deq = collections.deque([t])
+    memo = {}
+
+    while True:
+        t = deq.popleft()
+
+class PairGen:
+    @functools.total_ordering
+    class _Pair:
+        def __init__(self, *x):
+            self.x = x
+
+        def __repr__(self):
+            return 'Pair{x}'.format(self.x)
+
+        def __eq__(self, o):
+            return all(map(lambda x, y: x == y, self.x, o.x))
+
+        def __lt__(self, o):
+            return all(map(lambda x, y: x < y, self.x, o.x))
+            
+    # A priority queue
+    # (x, y) < (a, b) => x < a AND y < b
+    def __init__(self, n=2):
+        pair = PairGen._Pair(*tuple(0 for _ in range(n)))
+        self._n = n
+        self._memo = {}
+        self._pq = []
+
+        # max_sizes, only generate up to this.
+        self.max_sizes = [-1 for _ in range(n)]
+        self.continuation = {}
+
+        heapq.heappush(self._pq, pair)
+
+    def update(self, i):
+        '''Increment max_sizes for index i
+        '''
+        self.max_sizes[i] += 1
+        if i in self.continuation:
+            t = self.continuation[i]
+            pair = PairGen._Pair(*t)
+            heapq.heappush(self._pq, pair)
+            del self.continuation[i]
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if not self._pq:
+            raise StopIteration
+
+        pair = heapq.heappop(self._pq)
+        t = pair.x
+
+        for i in range(self._n):
+            v = t[i] + 1
+            tp = t[:i] + (v,) + t[i+1:]
+
+            if v > self.max_sizes[i]:
+                if i not in self.continuation:
+                    self.continuation[i] = tp
+                continue
+
+            if tp not in self._memo:
+                pair = PairGen._Pair(*tp)
+                heapq.heappush(self._pq, pair)
+                self._memo[tp] = True
+
+        return t
+
+def generate_args_from_strategies(*iters):
+    '''TODO: change this to do better ordering?
+Make sure it hits all lower values first
+i.e. 00 01 10 11 before 20 or 02 (1s before 2s)
+    '''
+    gens = collections.deque(map(iter,iters))
+    n = len(gens)
+
+    values = [[] for _ in range(n)]
+    ds = collections.deque(enumerate(values))
+
+    pair_gen = PairGen(n=n)
+    pair_next = None
+    c = 0
+
+    def _check():
+        nonlocal pair_next, pair_gen
+        while True:
+            if not pair_next:
+                pair_next = next(pair_gen)
+
+            log.debug('generate_args_from_strategies: \n values = {}\n t = {}'.format(values,pair_next))
+
+            t = ()
+            for i in range(n):
+                j = pair_next[i]
+                t += (values[i][j],)
+            else:
+                pair_next = None
+                yield t
+                continue
+            break
+
+    while gens:
+        gen = gens.popleft()
+        di, d = ds.popleft()
 
         try:
-            for v in gen:
-                for ks in poss:
-                    new_poss.append(ks + [v])
+            v = next(gen)
+        except StopIteration:
+            continue
         except MissingStrategyError:
-            for ks in poss:
-                new_poss.append(ks + [MissingStrategyError])
+            v = MissingStrategyError
+            ds.append((di,d))
+        else:
+            ds.append((di,d))
 
-        poss = new_poss
-        new_poss = collections.deque()
+        pair_gen.update(di)
+        d.append(v)
+        c += 1
+        gens.append(gen)
+        if c >= n:
+            yield from _check()
 
-    yield from map(tuple, poss)
+    if c >= n:
+        yield from _check()
 
 def has_strat_instance(t):
     try:
@@ -249,7 +357,6 @@ class StratMeta(abc.ABCMeta):
                 raise MissingStrategyError('Cannot get Strategy instance for ~{}, not a typing.Generic instance'.format(t))
         raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
 
-
 class StrategyIterator:
     def __init__(self, strat):
         self.strategy = strat
@@ -261,6 +368,7 @@ class StrategyIterator:
     def __next__(self):
         if self.strategy._depth > 0:
             return next(self._generator)
+         
         raise StopIteration
 
     def __iter__(self):
@@ -292,10 +400,9 @@ class Strategy(metaclass=StratMeta):
         sig = inspect.signature(f)
         types = list(map(lambda p: p[1].annotation, sig.parameters.items()))
 
-        strats = [Strategy.get_strat_instance(t)(self._depth - 1) for t in types]
-        args = list(generate_args_from_strategies(*strats))
-
-        for argt in args:
+        self.log.debug('cons{}, d={}'.format(tuple(types), self._depth))
+        for argt in value_args(self._depth - 1, *types):
+            self.log.debug('cons: {}'.format(argt))
             yield f(*argt)
 
     @abc.abstractmethod

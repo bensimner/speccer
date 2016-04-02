@@ -7,9 +7,12 @@ except ImportError:
     import sys
     sys.exit(1)
 
+import logging
 from .strategy import *
+from . import strategy
 
 LETTERS = string.ascii_lowercase
+log = logging.getLogger('default_strategies')
 
 class IntStrat(Strategy[int]):
     def generate(self, depth, partial=0):
@@ -19,7 +22,7 @@ class IntStrat(Strategy[int]):
             yield -i
 
 class ListStrat(Strategy[List[T]]):
-    def generate(self, depth, t, partial=[]):
+    def generate(self, depth, t):
         def mk_list(a: t, b: List[t]) -> List[t]:
             return [a] + b
 
@@ -32,7 +35,7 @@ class StrStrat(Strategy[str]):
         yield from LETTERS[:m]
 
 # DEBUG
-if True:
+if False:
     class SimpleIntStrat(IntStrat):
         def generate(self, depth, partial=0):
             yield 0

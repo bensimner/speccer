@@ -16,19 +16,22 @@ def prop_sortedReversed(xs: List[int]):
     assertThat(is_sorted, list(reversed(xs)))
 
 if __name__ == '__main__':
-    spec(2, prop_sortedReversed)
+    spec(3, prop_sortedReversed)
 
 '''
 Sample Output:
 
+
 .....E
 ========================================
-Failure after 6 calls
+Failure after 6 call(s)
 In Property `prop_sortedReversed`
 ----------------------------------------
 Found Counterexample:
- ([0, 1],)
+ [0, 1]
 
 Reason:
  is_sorted([1, 0]) is false
+
+FAIL.
 '''
