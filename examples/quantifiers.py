@@ -28,7 +28,6 @@ Found Witness:
  [0, 0]
 
 Reason:
- ¬{is_sorted([0, 0]) is false}
  `prop_sorted` returned true
 
 OK.

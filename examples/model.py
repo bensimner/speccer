@@ -98,6 +98,8 @@ class MyModel(Model):
         arr, _ = self.state
         assertEqual(size, len(arr)) 
 
+# TODO: Implication of validating partials again
+# this needs type inference or something...
 def prop_model():
     '''Just check that the queue matches the model
     '''

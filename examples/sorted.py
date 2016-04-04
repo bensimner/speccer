@@ -22,9 +22,9 @@ Sample Output:
 
 ...............
 ----------------------------------------
-Ran to 15 calls
+Ran to 15 call(s) (6 did not meet implication)
 Found no counterexample to depth 3
 15/15
 
-OK
+OK.
 '''
