@@ -13,6 +13,8 @@ def prop_sortedReversed(xs: List[int]):
 
     (obviously False, to test output)
     '''
+    assertTrue(True)
+    assertThat(lambda x, y: x <= y, 0, len(xs))
     assertThat(is_sorted, list(reversed(xs)))
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import inspect
-import collections
 import logging
+import traceback
+import collections
 
 from .types import *
 from .import strategy
@@ -30,14 +31,14 @@ LAYOUT = {
         2: '-',
 }
 
-def _assert(p, fail_m, succ_m=None):
+def _assert(p, ass_name='Assert', fail_m='_assert', succ_m=None):
     if not p:
         raise AssertionFailure(fail_m)
     else:
         if succ_m:
-            Assertions.append(succ_m)
+            Assertions.append((ass_name,succ_m))
         else:
-            Assertions.append('¬{{{}}}'.format(fail_m))
+            Assertions.append((ass_name,'¬{{{}}}'.format(fail_m)))
 
 def spec(depth, prop, **options):
     '''Given some :class:`Property` 'prop'
@@ -84,21 +85,7 @@ def handle_exists(prop, depth, **options):
             print('In Property `{p}`'.format(p=str(result.source)))
             print(LAYOUT[2] * N)
             print('Found Witness:')
-            if len(result.counter.argt) == 1:
-                if isinstance(result.counter.argt[0], model.Partials):
-                    print('> {}'.format(result.counter.argt[0].pretty))
-                else:
-                    s = str(result.counter.argt[0])
-                    print(' {}'.format(s))
-            else:
-                print(' {}'.format(str(result.counter.argt)))
-
-            print('')
-            print('Reason:')
-            for r in Assertions:
-                print(' {}'.format(r))
-
-            print(' {}'.format(result.reason))
+            print_result(result)
             print('')
             print('OK.')
             break
@@ -141,19 +128,7 @@ def handle_forall(prop, depth, **options):
             print('In Property `{p}`'.format(p=str(result.source)))
             print(LAYOUT[2] * N)
             print('Found Counterexample:')
-            if len(result.counter.argt) == 1:
-                if isinstance(result.counter.argt[0], model.Partials):
-                    print('> {}'.format(result.counter.argt[0].pretty))
-                else:
-                    s = str(result.counter.argt[0])
-                    print(' {}'.format(s))
-            else:
-                print(' {}'.format(str(result.counter.argt)))
-            print('')
-            print('Reason:')
-            for r in Assertions:
-                print(' {}'.format(r))
-            print(' {}'.format(result.reason))
+            print_result(result)
             print('')
             print('FAIL.')
             break
@@ -172,6 +147,29 @@ def handle_forall(prop, depth, **options):
         print('{n}/{n}'.format(n=n))
         print('')
         print('OK.')
+
+def print_result(result):
+    if len(result.counter.argt) == 1:
+        if isinstance(result.counter.argt[0], model.Partials):
+            print('> {}'.format(result.counter.argt[0].pretty))
+        else:
+            s = str(result.counter.argt[0])
+            print(' {}'.format(s))
+    else:
+        print(' {}'.format(str(result.counter.argt)))
+    print('')
+    print('Reason:')
+    for name,r in Assertions:
+        print('> {}\t{}'.format(name,r))
+
+    if isinstance(result.reason, Exception):
+        print('> EXCEPTION:')
+        e = result.reason
+        etype = type(e)
+        traceback.print_exception(etype, e, e.__traceback__)
+    else:
+        print(' {}'.format(result.reason))
+
 
 class Property:
     FORALL = 1
@@ -252,28 +250,28 @@ def assertThat(f, *args, fmt_fail='{name}({argv}) is false'):
     except AttributeError:
         name = str(f)
 
-    _assert(f(*args), fmt_fail.format(argv=s_args, name=name))
+    _assert(f(*args), 'assertThat', fmt_fail.format(argv=s_args, name=name))
 
-def assertTrue(a, fmt='True'):
-    _assert(not a, fmt.format(a=a))
+def assertTrue(a, fmt='False'):
+    _assert(a, 'assertTrue', fmt.format(a=a))
 
-def assertFalse(a, fmt='False'):
-    _assert(a, fmt.format(a=a))
+def assertFalse(a, fmt='True'):
+    _assert(not a, 'assertFalse', fmt.format(a=a))
 
 def assertEqual(a, b):
-    _assert(a == b, '{} == {}'.format(a, b))
+    _assert(a == b, 'assertEqual', '{} != {}'.format(a, b))
 
 def assertIs(a, b):
-    _assert(a is b, '{} is {}'.format(a, b))
+    _assert(a is b, 'assertIs', '{} is not {}'.format(a, b))
 
-def assertNotEqual(a, b, fmt_fail='{a} != {b}'):
-    _assert(a != b, fmt_fail.format(a=a, b=b))
+def assertNotEqual(a, b, fmt_fail='{a} == {b}'):
+    _assert(a != b, 'assertNotEqual', fmt_fail.format(a=a, b=b))
 
-def assertIsNot(a, b, fmt_fail='{a} is not {b}'):
-    _assert(a is not b, fmt_fail.format(a=a, b=b))
+def assertIsNot(a, b, fmt_fail='{a} is {b}'):
+    _assert(a is not b, 'assertIsNot', fmt_fail.format(a=a, b=b))
 
 def assertIsNotInstance(a, b):
-    _assert(not isinstance(a, b), ' not isinstance({}, {})'.format(a, b))
+    _assert(not isinstance(a, b), 'assertIsNotInstance', 'isinstance({}, {})'.format(a, b))
 
 def assertIsInstance(a, b):
-    _assert(isinstance(a, b), 'isinstance({}, {})'.format(a, b))
+    _assert(isinstance(a, b), 'assertIsInstance', 'not isinstance({}, {})'.format(a, b))

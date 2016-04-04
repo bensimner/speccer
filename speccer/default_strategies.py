@@ -15,8 +15,9 @@ LETTERS = string.ascii_lowercase
 log = logging.getLogger('default_strategies')
 
 class IntStrat(Strategy[int]):
-    def generate(self, depth, partial=0):
+    def generate(self, depth):
         yield 0
+
         for i in range(1, 1+depth):
             yield i
             yield -i
@@ -34,9 +35,9 @@ class StrStrat(Strategy[str]):
         m = min(depth + 1, len(LETTERS))
         yield from LETTERS[:m]
 
-# DEBUG
+# for debugging
 if False:
     class SimpleIntStrat(IntStrat):
-        def generate(self, depth, partial=0):
+        def generate(self, depth):
             yield 0
             yield 1
