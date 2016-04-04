@@ -98,12 +98,11 @@ class MyModel(Model):
         arr, _ = self.state
         assertEqual(size, len(arr)) 
 
-
-@implication(Partials.validate)
-@Property.forall
-def prop_model(cmds: MyModel.Commands):
+def prop_model():
     '''Just check that the queue matches the model
     '''
+    return forall(MyModel.Commands,
+            lambda cmds: cmds.validate())
 
 if __name__ == '__main__':
     spec(6, prop_model)

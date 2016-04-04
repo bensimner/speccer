@@ -1,17 +1,24 @@
 # Models.py - Definition of a Model
 # author: Ben Simner 
 
-import collections
-import itertools
+import logging
 import inspect
 import functools
-import logging
+import itertools
+import collections
 from typing import List
 
 from .spec import _assert
 from .strategy import *
-from .types import *
+from .error_types import *
 from . import default_strategies as default
+
+__all__ = [
+        'Model',
+        'command',
+        'validate',
+]
+
 
 def empty(self, *_):
     return True
@@ -99,10 +106,13 @@ class Partials:
     def pretty(self):
         if self._partials == []:
             return '<empty>'
+
         return pretty_partials(self, values=self.values, sep='\n> ', return_annotation=False)
 
     def __iter__(self):
         return iter(self._partials)
+
+validate = Partials.validate
 
 PartialArg = collections.namedtuple('PartialArg', ['value', 'name', 'annotation'])
 '''A Partially applied argument
@@ -158,7 +168,15 @@ def pretty_partials(partials, values=None, return_annotation=True, sep='; '):
     if values is None:
         return sep.join(map(pretty_str, partials))
 
-    return sep.join(pretty_str(p, value=v) for p, v in zip(partials, values))
+    out = []
+    for i, p in enumerate(partials):
+        try:
+            v = values[i]
+            out.append(pretty_str(p, value=v))
+        except IndexError:
+            out.append(pretty_str(p))
+
+    return sep.join(out)
 
 class Command:
     '''An @property like :class:`Command`

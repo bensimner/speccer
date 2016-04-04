@@ -1,9 +1,11 @@
+import types
 import inspect
 import logging
 import traceback
 import collections
 
-from .types import *
+from .error_types import *
+from .clauses import *
 from .import strategy
 from .import model
 
@@ -17,18 +19,21 @@ __all__ = ['spec',
         'assertIsNot',
         'assertIsInstance',
         'assertIsNotInstance',
-        'Property',
+        'exists',
+        'forall',
 ]
 
 log = logging.getLogger('spec')
-Counter = collections.namedtuple('Counter', ['argt'])
 Result = collections.namedtuple('Result', ['outcome', 'counter', 'reason', 'source'])
+Failure = lambda counter, reason, source: Result(False, counter, reason, source)
+Success = lambda counter, reason, source: Result(True, counter, reason, source)
 
 Assertions = []
 
+N = 40
 LAYOUT = {
-        1 : ['-', '='],
-        2: '-',
+        1 : ['-'*40, '='*40],
+        2: '-'*40,
 }
 
 def _assert(p, ass_name='Assert', fail_m='_assert', succ_m=None):
@@ -40,42 +45,49 @@ def _assert(p, ass_name='Assert', fail_m='_assert', succ_m=None):
         else:
             Assertions.append((ass_name,'¬{{{}}}'.format(fail_m)))
 
-def spec(depth, prop, **options):
+def spec(depth, prop):
     '''Given some :class:`Property` 'prop'
     test it against inputs to depth 'depth
     and print any found counter example
-
-    Options can be as follows:
-        verbose:bool    Display generated test cases and stats
     '''
 
-    # TODO: unittest style output?
-    # or unittest integration
-    # or something?
-    if not isinstance(prop, Property):
-        print('Warning: Not given Property instance')
-        print('Trying to generate one instead')
-        prop = Property(prop)
-        print('Done...')
+    if isinstance(prop, types.FunctionType):
+        f = prop
+        prop = prop()
+        prop.name = f.__name__
 
-    if prop.quantifier == Property.FORALL:
-        handle_forall(prop, depth, **options)
-    else:
-        handle_exists(prop, depth, **options)
+    t, *args = prop
+    if t == PropertyType.FORALL:
+        handle_forall(depth, prop)
+    elif t == PropertyType.EXISTS:
+        handle_exists(depth, prop)
+    elif t == PropertyType.EMPTY:
+        handle_empty(prop)
 
-def handle_exists(prop, depth, **options):
-    N = 40
-    n = 0
-    
+def handle_empty(prop):
     if 0 in LAYOUT:
-        print(LAYOUT[0] * N)
+        print(LAYOUT[0])
+        print('')
 
-    for result in prop(depth, **options):
+    print(LAYOUT[1][0])
+    print('<empty>')
+    print('')
+    print('OK.')
+
+def handle_exists(depth, prop):
+    '''A Manual run_exists with output
+    '''
+    n = 0
+    if 0 in LAYOUT:
+        print(LAYOUT[0])
+
+    _, (gen_types, f) = prop
+    for result in _run_prop(depth, prop, gen_types, f):
         n += 1
 
         if result.outcome:
             print('*')
-            print(LAYOUT[1][0] * N)
+            print(LAYOUT[1][0])
 
             if strategy.FAILED_IMPLICATION:
                 print('Found witness after {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
@@ -83,7 +95,7 @@ def handle_exists(prop, depth, **options):
                 print('Found witness after {n} call(s)'.format(n=n))
 
             print('In Property `{p}`'.format(p=str(result.source)))
-            print(LAYOUT[2] * N)
+            print(LAYOUT[2])
             print('Found Witness:')
             print_result(result)
             print('')
@@ -96,7 +108,7 @@ def handle_exists(prop, depth, **options):
             print('')
     else:
         print('E')
-        print(LAYOUT[1][1] * N)
+        print(LAYOUT[1][1])
         if strategy.FAILED_IMPLICATION:
             print('Ran to {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
         else:
@@ -106,19 +118,21 @@ def handle_exists(prop, depth, **options):
         print('')
         print('FAIL.')
     
-def handle_forall(prop, depth, **options):
-    N = 40
+def handle_forall(depth, prop):
+    '''A Manual run_forall
+    '''
     n = 0
 
     if 0 in LAYOUT:
-        print(LAYOUT[0] * N)
+        print(LAYOUT[0])
 
-    for result in prop(depth, **options):
+    _, (gen_types, f) = prop
+    for result in _run_prop(depth, prop, gen_types, f):
         n += 1
 
         if not result.outcome:
             print('E')
-            print(LAYOUT[1][1] * N)
+            print(LAYOUT[1][1])
 
             if strategy.FAILED_IMPLICATION:
                 print('Failure after {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
@@ -126,7 +140,7 @@ def handle_forall(prop, depth, **options):
                 print('Failure after {n} call(s)'.format(n=n))
 
             print('In Property `{p}`'.format(p=str(result.source)))
-            print(LAYOUT[2] * N)
+            print(LAYOUT[2])
             print('Found Counterexample:')
             print_result(result)
             print('')
@@ -138,7 +152,7 @@ def handle_forall(prop, depth, **options):
             print('')
     else:
         print('')
-        print(LAYOUT[1][0] * N)
+        print(LAYOUT[1][0])
         if strategy.FAILED_IMPLICATION:
             print('Ran to {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
         else:
@@ -149,14 +163,15 @@ def handle_forall(prop, depth, **options):
         print('OK.')
 
 def print_result(result):
-    if len(result.counter.argt) == 1:
-        if isinstance(result.counter.argt[0], model.Partials):
-            print('> {}'.format(result.counter.argt[0].pretty))
+    if len(result.counter) == 1:
+        if isinstance(result.counter[0], model.Partials):
+            print('> {}'.format(result.counter[0].pretty))
         else:
-            s = str(result.counter.argt[0])
+            s = str(result.counter[0])
             print(' {}'.format(s))
     else:
-        print(' {}'.format(str(result.counter.argt)))
+        print(' {}'.format(str(result.counter)))
+
     print('')
     print('Reason:')
     for name,r in Assertions:
@@ -170,76 +185,80 @@ def print_result(result):
     else:
         print(' {}'.format(result.reason))
 
+def run_clause(depth, clause):
+    '''Given some Property clause
+    run it and yield all the results
+    '''
+    t, *args = clause
+    if  t == PropertyType.FORALL:
+        return run_forall(clause)
+    elif t == PropertyType.EXISTS:
+        return run_exists(clause)
+    elif t == PropertyType.EMPTY:
+        return Success((), '<empty>', clause)
+    else:
+        raise ValueError('Unknown Clause `{}`'.format(clause))
 
-class Property:
-    FORALL = 1
-    EXISTS = 2
+def run_forall(depth, clause):
+    '''Given a forall, run it
+    and yield the results
+    '''
+    _, (gen_types, f) = clause
+    for result in _run_prop(depth, clause, gen_types, f):
+        if not result.outcome:
+            _, *res = result
+            return Failure(*res) # bubble the failure up
 
-    def __init__(self, f, quantifier=FORALL):
-        self._prop_func = f
-        self.quantifier = quantifier
-        self.strategies = {}
+    return Success(None, None, None)
 
-    @staticmethod
-    def exists(f):
-        return Property(f, quantifier=Property.EXISTS)
+def run_exists(depth, clause):
+    _, (gen_types, f) = clause
+    for result in _run_prop(depth, clause, gen_types, f):
+        if result.outcome:
+            _, *res = result
+            return Success(*res) # bubble success up
+    return Failure(None, None, None)
 
-    @staticmethod
-    def forall(f):
-        return Property(f, quantifier=Property.FORALL)
+def _get_args(depth, prop, types, f):
+    strats = []
+    with strategy.change_strategies(prop.strategies):
+        for t in types:
+            strat = strategy.get_strat_instance(t)
+            strats.append(strat(depth))
 
-    @property
-    def params(self):
-        sig = inspect.signature(self._prop_func)
-        for p in sig.parameters.items():
-            yield p
+    yield from strategy.generate_args_from_strategies(*strats)
 
-    def check(self, depth):
-        '''Check this property up to depth 'depth'
-        '''
-        # number of failed implications comes from the strategy module
-        # might do this a better way?
-        global FAILED_IMPLICATION, AssertionMode
-        FAILED_IMPLICATION = 0
-        types = list(map(lambda p: p[1].annotation, self.params))
-
-        strats = []
-        with strategy.change_strategies(self.strategies):
-            for t in types:
-                strat = strategy.get_strat_instance(t)
-                strats.append(strat(depth))
-
-        args = strategy.generate_args_from_strategies(*strats)
-        while True:
-            try:
-                argt = next(args)
-            except AssertionFailure as e:
-                yield Result(False, Counter((e._info['value'],)), '{{{}}}: {}'.format(e._info['src'], e._msg), self)
-            except StopIteration:
-                break
-
-            try:
-                Assertions[:] = []
-                v = self._prop_func(*argt)
-                if v == False:
-                    yield Result(False, Counter(argt), 'Property returned False', self)
-                    continue
-            except AssertionFailure as e:
-                yield Result(False, Counter(argt), e._msg, self)
-            except Exception as e:
-                yield Result(False, Counter(argt), e, self)
-            else:
-                yield Result(True, Counter(argt), '`{}` returned true'.format(self), self)
-
-    def __str__(self):
+def _run_prop(depth, prop, types, f):
+    # TODO: Rethink AssertionFailures on argt generation and 
+    # naming of property down chain (maybe dynamic name or just use topmost?)
+    args = _get_args(depth, prop, types, f)
+    while True:
         try:
-            return self._prop_func.__code__.co_name
-        except AttributeError:
-            return self.__name__
+            argt = next(args)
+        except AssertionFailure as e:
+            # Rethink the way THIS works?
+            counter = (e._info['value'],)
+            reason = '{{{}}}: {}'.format(e._info['src'], e._msg)
+            yield Failure(counter, reason, prop)
+        except StopIteration:
+            break
+
+        try:
+            Assertions[:] = []
+            v = f(*argt)
+            if v == False:
+                yield Failure(argt, 'Property returned False', prop)
+                continue
+            elif isinstance(v, Property):
+                yield run_clause(v)
+                continue
+        except AssertionFailure as e:
+            yield Failure(argt, e._msg, prop)
+        except Exception as e:
+            yield Failure(argt, e, prop)
+        else:
+            yield Success(argt, '`{}` returned true'.format(prop), prop)
     
-    def __call__(self, depth, **options):
-        self.options = options
-        yield from self.check(depth)
 
 # UnitTest style assertions
 def assertThat(f, *args, fmt_fail='{name}({argv}) is false'):

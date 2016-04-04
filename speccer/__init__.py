@@ -2,6 +2,7 @@ from .default_strategies import *
 from .model import *
 from .strategy import *
 from .spec import *
+from .clauses import *
 
 import logging.config
 

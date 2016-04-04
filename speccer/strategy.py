@@ -13,7 +13,7 @@ import functools
 import contextlib
 import collections
 
-from .types import *
+from .error_types import *
 
 FAILED_IMPLICATION = 0
 log = logging.getLogger('strategy')
@@ -31,30 +31,16 @@ __all__ = [
 ]
 
 def implication(implication_function):
-    sig = inspect.signature(implication_function)
     impl_name = implication_function.__name__
-
-    for param in itertools.islice(sig.parameters.values(), 1):
-        pass
+    sig = inspect.signature(implication_function)
+    param = next(iter(sig.parameters.values()))
 
     t = param.annotation
     if t is sig.empty:
-        t = None
-        log.debug('implication: `{}` missing type-annotation for parameter: `{}`'.format(impl_name, param.name)) 
+        # maybe try type inference?
+        raise ValueError('implication: `{}` missing type-annotation for parameter: `{}`'.format(impl_name, param.name)) 
 
-    def decorator(p):
-        nonlocal t
-        if t is None:
-            params = list(p.params)
-            if len(params) != 1:
-                err_msg = 'implication: `{}`, for property `{}`, cannot infer type -- requires 1 parameter'.format(impl_name, p)
-                log.error(err_msg)
-                raise ValueError(err_msg)
-
-            pname, param = params[0]
-            t = param.annotation
-            log.debug('implication: `{}` defaulting (`{}`:{})'.format(impl_name, pname, t)) 
-
+    def decorator(p_func):
         @mapS(Strategy[t])
         def newStrat(d, v, *args):
             global FAILED_IMPLICATION
@@ -69,8 +55,14 @@ def implication(implication_function):
                 yield v
 
         newStrat.__name__ = implication_function.__name__ 
-        p.strategies[t] = newStrat
+
+        @functools.wraps(p_func)
+        def p(*args, **kwargs):
+            prop = p_func(*args, **kwargs)
+            prop.strategies[t] = newStrat
+            return prop
         return p
+
     return decorator
 
 def values(depth, t):

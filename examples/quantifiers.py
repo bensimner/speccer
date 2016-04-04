@@ -7,12 +7,11 @@ def is_sorted(xs: List[T]) -> bool:
     '''
     return list(sorted(xs)) == xs
 
-@Property.exists
-def prop_sorted(xs: List[int]):
+def prop_sorted():
     '''A sorted list of length 2 exists
     '''
-    assertThat(is_sorted, xs)
-    return len(xs) == 2
+    return exists(List[int],
+            lambda xs: is_sorted(xs) and len(xs) == 2)
 
 if __name__ == '__main__':
     spec(3, prop_sorted)
