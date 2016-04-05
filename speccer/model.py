@@ -272,7 +272,7 @@ class ModelMeta(type):
         cls.__modelcommands__ = tuple(cmdlist)
 
         cls.Command = type('{}_Command'.format(cls), (), {})
-        cls.Commands = type('{}_Calls'.format(cls), (), {})
+        cls.Commands = type('{}_Commands'.format(cls), (), {})
         def validate(ps: cls.Commands) -> bool:
             '''Given a list of partials 'ps' return True if they're valid
             '''

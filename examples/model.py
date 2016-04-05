@@ -121,7 +121,8 @@ Failure after 71 call(s) (4809 did not meet implication)
 In Property `prop_model`
 ----------------------------------------
 Found Counterexample:
-prop_model:FORALL ->
+prop_model::FORALL(<class '__main__.MyModel'>_Commands) ->
+cmds =
 > a = new(1) -> Queue(size=1)
 > put(a, 0) -> None
 > get(a) -> 0

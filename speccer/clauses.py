@@ -13,7 +13,7 @@ class Property(tuple):
 
     def __init__(self, type, args):
         self.strategies = {}
-        self.name = type.name
+        self.name = None
         # each Property clause can have a parent clause
         # for nested properties
         self.parent = None

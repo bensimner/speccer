@@ -195,16 +195,15 @@ def print_result(result):
         p = parents.pop()
         counter = p.counter
 
+        # counter instance of BoundArguments
         if counter is not None:
             print('{} ->'.format(clause_to_path(p)))
-            if len(counter) == 1:
-                if isinstance(counter[0], model.Partials):
-                    print('> {}'.format(counter[0].pretty))
+            for arg_name, v in counter.arguments.items():
+                if isinstance(v, model.Partials):
+                    print(' {} ='.format(arg_name))
+                    print('> {}'.format(v.pretty))
                 else:
-                    s = str(counter[0])
-                    print(' {}'.format(s))
-            else:
-                print(' {}'.format(str(counter)))
+                    print(' {}={}'.format(arg_name, str(v)))
 
             print('')
 
@@ -226,11 +225,42 @@ def print_result(result):
     else:
         print(' {}'.format(src.reason))
 
+def pretty_type(t):
+    '''Pretty string of some type
+    '''
+    try:
+        # typing.GenericMeta
+        return '{}[{}]'.format(t.__name__, ', '.join(map(pretty_type, t.__parameters__)))
+    except AttributeError:
+        try:
+            # typing.TupleMeta
+            if t.__tuple_use_ellipsis__:
+                return '{}[{}, ...]'.format(t.__name__, ', '.join(map(pretty_type, t.__tuple_parameters__)))
+            else:
+                return '{}[{}]'.format(t.__name__, ', '.join(map(pretty_type, t.__tuple_parameters__)))
+        except AttributeError:
+            try:
+                return t.__name__
+            except AttributeError:
+                return str(t)
+
 def clause_to_path(clause):
-    location = clause.name + ':' + clause[0].name
-    p = clause.parent
+    '''Convert a Property clause to a prettyified string
+    '''
+    location = ''
+    p = clause
     while p is not None:
-        location = p.name + ':' + location
+        name = p.name
+        type_name = p[0].name
+        types = p[1][0]
+        if p.name is not None:
+            name = '{}::{}({})'.format(name, p[0].name, ', '.join(map(pretty_type,types)))
+            if not location:
+                location = name
+            else:
+                location = '{}:{}'.format(name, location)
+        else:
+            location = '{}({}):{}'.format(type_name, ', '.join(map(pretty_type,types)), location)
         p = p.parent
     return location
 
@@ -282,20 +312,22 @@ def _get_args(depth, prop, types, f):
 def _run_prop(depth, prop, types, f):
     global Assertions, AssertionSource
     args = _get_args(depth, prop, types, f)
+    s = inspect.signature(f)
     while True:
         try:
             argt = next(args)
-            prop.counter = argt
+            bind_argt = s.bind(*argt) 
+            prop.counter = bind_argt
         except AssertionFailure as e:
             # Rethink the way THIS works?
-            counter = (e._info['value'],)
+            counter = s.bind(e._info['value'])
             reason = '{{{}}}: {}'.format(e._info['src'], e._msg)
             prop.counter = counter
             prop.reason = reason
             yield Failure(prop)
         except StopIteration:
             break
-
+        
         try:
             Assertions = []
             AssertionSource = prop

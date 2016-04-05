@@ -28,8 +28,8 @@ Failure after 7 call(s)
 In Property `prop_sortedReversed`
 ----------------------------------------
 Found Counterexample:
-prop_sortedReversed:FORALL ->
- [-1, 0]
+prop_sortedReversed:FORALL(List[int]) ->
+ xs=[-1, 0]
 
 Reason:
  is_sorted([0, -1]) is false

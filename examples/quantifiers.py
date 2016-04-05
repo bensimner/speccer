@@ -20,7 +20,7 @@ def prop_nested():
 
 
 if __name__ == '__main__':
-    spec(3, prop_sorted)
+    spec(3, prop_nested)
 
 '''
 Sample Output:
@@ -32,12 +32,12 @@ Found witness after 4 call(s)
 In Property `prop_sorted`
 ----------------------------------------
 Found Witness:
-prop_sorted:EXISTS ->
- [0, 0]
+prop_sorted::EXISTS(List[int]) ->
+ xs=[0, 0]
 
 Reason:
-> prop_sorted:EXISTS, assert    is_sorted([0, 0])
-> prop_sorted:EXISTS, assert    2 == 2
+> prop_sorted::EXISTS(List[int]), assert        is_sorted([0, 0])
+> prop_sorted::EXISTS(List[int]), assert        2 == 2
 
  `prop_sorted` returned true
 
@@ -54,14 +54,14 @@ Failure after 1 call(s)
 In Property `prop_nested`
 ----------------------------------------
 Found Counterexample:
-prop_nested:FORALL ->
- []
+prop_nested::FORALL(List[int]) ->
+ xs=[]
 
-prop_nested:FORALL:FORALL ->
- 0
+prop_nested::FORALL(List[int]):FORALL(int) ->
+ y=0
 
 Reason:
- prop_nested:FORALL:FORALL property returned `False`
+ prop_nested::FORALL(List[int]):FORALL(int) property returned `False`
 
 FAIL.
 '''
