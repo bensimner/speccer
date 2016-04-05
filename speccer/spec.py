@@ -42,14 +42,16 @@ LAYOUT = {
         2: '-'*40,
 }
 
-def _assert(p, ass_name='Assert', fail_m='_assert', succ_m=None):
+def _assert(p, succ_m=None, fail_m='_assert'):
     if not p:
         raise AssertionFailure(fail_m)
     elif AssertionsLog:
         if succ_m:
-            Assertions.append((AssertionSource, ass_name, succ_m))
+            Assertions.append((AssertionSource, succ_m))
         else:
-            Assertions.append((AssertionSource, ass_name, '¬({})'.format(fail_m)))
+            Assertions.append((AssertionSource, '¬({})'.format(fail_m)))
+
+    return True
 
 @contextlib.contextmanager
 def enable_assertions_logging(enabled=True):
@@ -68,7 +70,7 @@ def spec(depth, prop, output=True):
     if isinstance(prop, types.FunctionType):
         f = prop
         prop = prop()
-        prop.name = f.__name__ + ':' + prop[0].name
+        prop.name = f.__name__
 
     if not output:
         return run_clause(depth, prop)
@@ -101,7 +103,6 @@ def handle_exists(depth, prop):
     _, (gen_types, f) = prop
     for result in _run_prop(depth, prop, gen_types, f):
         n += 1
-
         if result.outcome:
             print('*')
             print(LAYOUT[1][0])
@@ -192,10 +193,10 @@ def print_result(result):
     
     while parents:
         p = parents.pop()
-        print('{} ->'.format(clause_to_path(p)))
         counter = p.counter
 
         if counter is not None:
+            print('{} ->'.format(clause_to_path(p)))
             if len(counter) == 1:
                 if isinstance(counter[0], model.Partials):
                     print('> {}'.format(counter[0].pretty))
@@ -208,12 +209,11 @@ def print_result(result):
             print('')
 
     print('Reason:')
-    for ass_src, name,r in Assertions:
-        name = 'assert'
+    for ass_src, r in Assertions:
         if ass_src:
-            print('> {}, {}\t{}'.format(clause_to_path(ass_src), name,r))
+            print('> {}, assert\t{}'.format(clause_to_path(ass_src), r))
         else:
-            print('> {}\t{}'.format(name,r))
+            print('> assert\t{}'.format(r))
 
     if len(Assertions) > 0:
         print()
@@ -227,7 +227,7 @@ def print_result(result):
         print(' {}'.format(src.reason))
 
 def clause_to_path(clause):
-    location = clause.name
+    location = clause.name + ':' + clause[0].name
     p = clause.parent
     while p is not None:
         location = p.name + ':' + location
@@ -267,6 +267,7 @@ def run_exists(depth, clause):
             return result
 
     clause.reason = 'no {} exists that satisfies `{}`'.format(gen_types, clause_to_path(clause))
+    clause.counter = None
     return Failure(clause)
 
 def _get_args(depth, prop, types, f):
@@ -301,7 +302,7 @@ def _run_prop(depth, prop, types, f):
 
             v = f(*argt)
             if v == False:
-                prop.reason = '{} property returned `False`'.format(prop)
+                prop.reason = '{} property returned `False`'.format(clause_to_path(prop))
                 yield Failure(prop)
                 continue
             elif isinstance(v, Property):
@@ -320,7 +321,7 @@ def _run_prop(depth, prop, types, f):
     
 
 # UnitTest style assertions
-def assertThat(f, *args, fmt_fail='{name}({argv}) is false'):
+def assertThat(f, *args, fmt='{name}({argv})', fmt_fail='{name}({argv}) is false'):
     s_args = ', '.join(map(repr,args))
     
     try:
@@ -328,28 +329,28 @@ def assertThat(f, *args, fmt_fail='{name}({argv}) is false'):
     except AttributeError:
         name = str(f)
 
-    _assert(f(*args), 'assertThat', fmt_fail.format(argv=s_args, name=name))
+    return _assert(f(*args), fmt.format(argv=s_args, name=name), fmt_fail.format(argv=s_args, name=name))
 
-def assertTrue(a, fmt='False'):
-    _assert(a, 'assertTrue', fmt.format(a=a))
+def assertTrue(a, fmt='True', fmt_fail='False'):
+    return _assert(a, fmt.format(a=a), fmt_fail.format(a=a))
 
-def assertFalse(a, fmt='True'):
-    _assert(not a, 'assertFalse', fmt.format(a=a))
+def assertFalse(a, fmt='False', fmt_fail='True'):
+    return _assert(not a, fmt.format(a=a), fmt_fail.format(a=a))
 
-def assertEqual(a, b):
-    _assert(a == b, 'assertEqual', '{} != {}'.format(a, b))
+def assertEqual(a, b, fmt='{a} == {b}', fmt_fail='{a} != {b}'):
+    return _assert(a == b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
 
-def assertIs(a, b):
-    _assert(a is b, 'assertIs', '{} is not {}'.format(a, b))
+def assertIs(a, b, fmt='{a} is {b}', fmt_fail='{a} is not {b}'):
+    return _assert(a is b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
 
-def assertNotEqual(a, b, fmt_fail='{a} == {b}'):
-    _assert(a != b, 'assertNotEqual', fmt_fail.format(a=a, b=b))
+def assertNotEqual(a, b, fmt='{a} != {b}', fmt_fail='{a} == {b}'):
+    return _assert(a != b, '{} != {}'.format(a=a, b=b), fmt_fail.format(a=a, b=b))
 
-def assertIsNot(a, b, fmt_fail='{a} is {b}'):
-    _assert(a is not b, 'assertIsNot', fmt_fail.format(a=a, b=b))
+def assertIsNot(a, b, fmt='{a} is not {b}', fmt_fail='{a} is {b}'):
+    return _assert(a is not b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
 
-def assertIsNotInstance(a, b):
-    _assert(not isinstance(a, b), 'assertIsNotInstance', 'isinstance({}, {})'.format(a, b))
+def assertIsNotInstance(a, b, fmt='not isinstance({a}, {b})', fmt_fail='isinstance({a}, {b})'):
+    return _assert(not isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
 
-def assertIsInstance(a, b):
-    _assert(isinstance(a, b), 'assertIsInstance', 'not isinstance({}, {})'.format(a, b))
+def assertIsInstance(a, b, fmt='isinstance({a}, {b})', fmt_fail='not isinstance({a}, {b})'):
+    return _assert(isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))

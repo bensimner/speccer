@@ -10,8 +10,14 @@ def is_sorted(xs: List[T]) -> bool:
 def prop_sorted():
     '''A sorted list of length 2 exists
     '''
-    return exists(List[int],
-            lambda xs: assertThat(is_sorted, xs) or assertEqual(len(xs), 2))
+    return exists(List[int], 
+            lambda xs: assertThat(is_sorted, xs) and assertEqual(len(xs), 2))
+
+def prop_nested():
+    return forall(List[int],
+            lambda xs: forall(int,
+                lambda y: y in xs))
+
 
 if __name__ == '__main__':
     spec(3, prop_sorted)
@@ -19,16 +25,43 @@ if __name__ == '__main__':
 '''
 Sample Output:
 
+>> spec(3, prop_sorted)
 ...*
 ----------------------------------------
 Found witness after 4 call(s)
 In Property `prop_sorted`
 ----------------------------------------
 Found Witness:
+prop_sorted:EXISTS ->
  [0, 0]
 
 Reason:
+> prop_sorted:EXISTS, assert    is_sorted([0, 0])
+> prop_sorted:EXISTS, assert    2 == 2
+
  `prop_sorted` returned true
 
 OK.
+'''
+
+'''
+Sample Output:
+
+>> spec(3, prop_nested)
+E
+========================================
+Failure after 1 call(s)
+In Property `prop_nested`
+----------------------------------------
+Found Counterexample:
+prop_nested:FORALL ->
+ []
+
+prop_nested:FORALL:FORALL ->
+ 0
+
+Reason:
+ prop_nested:FORALL:FORALL property returned `False`
+
+FAIL.
 '''

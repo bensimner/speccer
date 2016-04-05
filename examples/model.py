@@ -113,6 +113,7 @@ if __name__ == '__main__':
 '''
 Sample Output:
 
+>> spec(6, prop_model) # with debug int strategy
 ........................................
 ..............................E
 ========================================
@@ -120,6 +121,7 @@ Failure after 71 call(s) (4809 did not meet implication)
 In Property `prop_model`
 ----------------------------------------
 Found Counterexample:
+prop_model:FORALL ->
 > a = new(1) -> Queue(size=1)
 > put(a, 0) -> None
 > get(a) -> 0

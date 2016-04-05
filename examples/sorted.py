@@ -15,7 +15,7 @@ def prop_sorted():
     return forall(List[int], is_sorted)
 
 if __name__ == '__main__':
-    spec(3, prop_sorted())
+    spec(3, prop_sorted)
 
 '''
 Sample Output:

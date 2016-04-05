@@ -21,17 +21,18 @@ if __name__ == '__main__':
 '''
 Sample Output:
 
-
-.....E
+>> spec(3, prop_sortedReversed)
+......E
 ========================================
-Failure after 6 call(s)
+Failure after 7 call(s)
 In Property `prop_sortedReversed`
 ----------------------------------------
 Found Counterexample:
- [0, 1]
+prop_sortedReversed:FORALL ->
+ [-1, 0]
 
 Reason:
- is_sorted([1, 0]) is false
+ is_sorted([0, -1]) is false
 
 FAIL.
 '''
