@@ -260,7 +260,10 @@ def clause_to_path(clause):
             else:
                 location = '{}:{}'.format(name, location)
         else:
-            location = '{}({}):{}'.format(type_name, ', '.join(map(pretty_type,types)), location)
+            if location:
+                location = '{}({}):{}'.format(type_name, ', '.join(map(pretty_type,types)), location)
+            else:
+                location = '{}({})'.format(type_name, ', '.join(map(pretty_type,types)))
         p = p.parent
     return location
 

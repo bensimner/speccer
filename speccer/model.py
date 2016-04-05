@@ -272,7 +272,7 @@ class ModelMeta(type):
         cls.__modelcommands__ = tuple(cmdlist)
 
         cls.Command = type('{}_Command'.format(cls), (), {})
-        cls.Commands = type('{}_Commands'.format(cls), (), {})
+        cls.Commands = type('{}_Commands'.format(cls), (Partials,), {})
         def validate(ps: cls.Commands) -> bool:
             '''Given a list of partials 'ps' return True if they're valid
             '''
@@ -345,7 +345,7 @@ class ModelMeta(type):
                             new_args = list(p.args)
                             new_args[j] = a._replace(name=var)
                             partials[i] = p._replace(args=new_args)
-                yield Partials(cls(), partials)
+                yield cls.Commands(cls(), partials)
 
         cls.__partial_strat__ = _PartialStrat
         return cls
