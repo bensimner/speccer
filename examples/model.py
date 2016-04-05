@@ -100,6 +100,7 @@ class MyModel(Model):
 
 # TODO: Implication of validating partials again
 # this needs type inference or something...
+@implication(MyModel.validate)
 def prop_model():
     '''Just check that the queue matches the model
     '''

@@ -1,7 +1,10 @@
+import sys
+import time
 import types
 import inspect
 import logging
 import traceback
+import contextlib
 import collections
 
 from .error_types import *
@@ -19,16 +22,19 @@ __all__ = ['spec',
         'assertIsNot',
         'assertIsInstance',
         'assertIsNotInstance',
+        'enable_assertions_logging',
         'exists',
         'forall',
 ]
 
 log = logging.getLogger('spec')
-Result = collections.namedtuple('Result', ['outcome', 'counter', 'reason', 'source'])
-Failure = lambda counter, reason, source: Result(False, counter, reason, source)
-Success = lambda counter, reason, source: Result(True, counter, reason, source)
+Result = collections.namedtuple('Result', ['outcome', 'source'])
+Failure = lambda source: Result(False, source)
+Success = lambda source: Result(True, source)
 
 Assertions = []
+AssertionSource = None
+AssertionsLog = True
 
 N = 40
 LAYOUT = {
@@ -39,13 +45,21 @@ LAYOUT = {
 def _assert(p, ass_name='Assert', fail_m='_assert', succ_m=None):
     if not p:
         raise AssertionFailure(fail_m)
-    else:
+    elif AssertionsLog:
         if succ_m:
-            Assertions.append((ass_name,succ_m))
+            Assertions.append((AssertionSource, ass_name, succ_m))
         else:
-            Assertions.append((ass_name,'¬{{{}}}'.format(fail_m)))
+            Assertions.append((AssertionSource, ass_name, '¬({})'.format(fail_m)))
 
-def spec(depth, prop):
+@contextlib.contextmanager
+def enable_assertions_logging(enabled=True):
+    global AssertionsLog
+    log = AssertionsLog
+    AssertionsLog = enabled
+    yield
+    AssertionsLog = log
+
+def spec(depth, prop, output=True):
     '''Given some :class:`Property` 'prop'
     test it against inputs to depth 'depth
     and print any found counter example
@@ -54,7 +68,10 @@ def spec(depth, prop):
     if isinstance(prop, types.FunctionType):
         f = prop
         prop = prop()
-        prop.name = f.__name__
+        prop.name = f.__name__ + ':' + prop[0].name
+
+    if not output:
+        return run_clause(depth, prop)
 
     t, *args = prop
     if t == PropertyType.FORALL:
@@ -94,7 +111,7 @@ def handle_exists(depth, prop):
             else:
                 print('Found witness after {n} call(s)'.format(n=n))
 
-            print('In Property `{p}`'.format(p=str(result.source)))
+            print('In Property `{p}`'.format(p=str(prop)))
             print(LAYOUT[2])
             print('Found Witness:')
             print_result(result)
@@ -102,9 +119,9 @@ def handle_exists(depth, prop):
             print('OK.')
             break
         else: 
-            print('.', end='')
+            print('.', flush=True, end='')
 
-        if n == N:
+        if n % N == 0:
             print('')
     else:
         print('E')
@@ -139,7 +156,7 @@ def handle_forall(depth, prop):
             else:
                 print('Failure after {n} call(s)'.format(n=n))
 
-            print('In Property `{p}`'.format(p=str(result.source)))
+            print('In Property `{p}`'.format(p=str(prop)))
             print(LAYOUT[2])
             print('Found Counterexample:')
             print_result(result)
@@ -147,8 +164,8 @@ def handle_forall(depth, prop):
             print('FAIL.')
             break
         
-        print('.', end='')
-        if n == N:
+        print('.', flush=True, end='')
+        if n % N == 0:
             print('')
     else:
         print('')
@@ -163,27 +180,59 @@ def handle_forall(depth, prop):
         print('OK.')
 
 def print_result(result):
-    if len(result.counter) == 1:
-        if isinstance(result.counter[0], model.Partials):
-            print('> {}'.format(result.counter[0].pretty))
-        else:
-            s = str(result.counter[0])
-            print(' {}'.format(s))
-    else:
-        print(' {}'.format(str(result.counter)))
+    '''PrettyPrints the witness/counterexample and source to the screen
+    '''
+    src = result.source
+    parents = []
+    
+    p = src
+    while p:
+        parents.append(p)
+        p = p.parent
+    
+    while parents:
+        p = parents.pop()
+        print('{} ->'.format(clause_to_path(p)))
+        counter = p.counter
 
-    print('')
+        if counter is not None:
+            if len(counter) == 1:
+                if isinstance(counter[0], model.Partials):
+                    print('> {}'.format(counter[0].pretty))
+                else:
+                    s = str(counter[0])
+                    print(' {}'.format(s))
+            else:
+                print(' {}'.format(str(counter)))
+
+            print('')
+
     print('Reason:')
-    for name,r in Assertions:
-        print('> {}\t{}'.format(name,r))
+    for ass_src, name,r in Assertions:
+        name = 'assert'
+        if ass_src:
+            print('> {}, {}\t{}'.format(clause_to_path(ass_src), name,r))
+        else:
+            print('> {}\t{}'.format(name,r))
 
-    if isinstance(result.reason, Exception):
+    if len(Assertions) > 0:
+        print()
+
+    if isinstance(src.reason, Exception):
         print('> EXCEPTION:')
-        e = result.reason
+        e = src.reason
         etype = type(e)
         traceback.print_exception(etype, e, e.__traceback__)
     else:
-        print(' {}'.format(result.reason))
+        print(' {}'.format(src.reason))
+
+def clause_to_path(clause):
+    location = clause.name
+    p = clause.parent
+    while p is not None:
+        location = p.name + ':' + location
+        p = p.parent
+    return location
 
 def run_clause(depth, clause):
     '''Given some Property clause
@@ -191,11 +240,11 @@ def run_clause(depth, clause):
     '''
     t, *args = clause
     if  t == PropertyType.FORALL:
-        return run_forall(clause)
+        return run_forall(depth, clause)
     elif t == PropertyType.EXISTS:
-        return run_exists(clause)
+        return run_exists(depth, clause)
     elif t == PropertyType.EMPTY:
-        return Success((), '<empty>', clause)
+        return Success('<empty>', clause)
     else:
         raise ValueError('Unknown Clause `{}`'.format(clause))
 
@@ -206,18 +255,19 @@ def run_forall(depth, clause):
     _, (gen_types, f) = clause
     for result in _run_prop(depth, clause, gen_types, f):
         if not result.outcome:
-            _, *res = result
-            return Failure(*res) # bubble the failure up
+            return result
 
-    return Success(None, None, None)
+    return Success('forall-true', clause)
 
 def run_exists(depth, clause):
     _, (gen_types, f) = clause
     for result in _run_prop(depth, clause, gen_types, f):
+        _, *res = result
         if result.outcome:
-            _, *res = result
-            return Success(*res) # bubble success up
-    return Failure(None, None, None)
+            return result
+
+    clause.reason = 'no {} exists that satisfies `{}`'.format(gen_types, clause_to_path(clause))
+    return Failure(clause)
 
 def _get_args(depth, prop, types, f):
     strats = []
@@ -229,35 +279,44 @@ def _get_args(depth, prop, types, f):
     yield from strategy.generate_args_from_strategies(*strats)
 
 def _run_prop(depth, prop, types, f):
-    # TODO: Rethink AssertionFailures on argt generation and 
-    # naming of property down chain (maybe dynamic name or just use topmost?)
+    global Assertions, AssertionSource
     args = _get_args(depth, prop, types, f)
     while True:
         try:
             argt = next(args)
+            prop.counter = argt
         except AssertionFailure as e:
             # Rethink the way THIS works?
             counter = (e._info['value'],)
             reason = '{{{}}}: {}'.format(e._info['src'], e._msg)
-            yield Failure(counter, reason, prop)
+            prop.counter = counter
+            prop.reason = reason
+            yield Failure(prop)
         except StopIteration:
             break
 
         try:
-            Assertions[:] = []
+            Assertions = []
+            AssertionSource = prop
+
             v = f(*argt)
             if v == False:
-                yield Failure(argt, 'Property returned False', prop)
+                prop.reason = '{} property returned `False`'.format(prop)
+                yield Failure(prop)
                 continue
             elif isinstance(v, Property):
-                yield run_clause(v)
+                v.parent = prop
+                yield run_clause(depth, v)
                 continue
         except AssertionFailure as e:
-            yield Failure(argt, e._msg, prop)
+            prop.reason = e._msg
+            yield Failure(prop)
         except Exception as e:
-            yield Failure(argt, e, prop)
+            prop.reason = e
+            yield Failure(prop)
         else:
-            yield Success(argt, '`{}` returned true'.format(prop), prop)
+            prop.reason = '`{}` returned true'.format(prop)
+            yield Success(prop)
     
 
 # UnitTest style assertions

@@ -11,9 +11,20 @@ class Property(tuple):
     def __new__(cls, type, args):
         return _tuple.__new__(cls, (type, args))
 
-    def __init__(self, *args):
+    def __init__(self, type, args):
         self.strategies = {}
-        self.name = '<unknown_property>'
+        self.name = type.name
+        # each Property clause can have a parent clause
+        # for nested properties
+        self.parent = None
+
+        # each clause can have a counterarguement
+        # either counterexample or a witness
+        self.counter = None
+
+        # each failure can have a reason string attached
+        # with a short description as to why it failed.
+        self.reason = None
 
     def __str__(self):
         return self.name

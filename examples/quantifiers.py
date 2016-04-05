@@ -11,7 +11,7 @@ def prop_sorted():
     '''A sorted list of length 2 exists
     '''
     return exists(List[int],
-            lambda xs: is_sorted(xs) and len(xs) == 2)
+            lambda xs: assertThat(is_sorted, xs) or assertEqual(len(xs), 2))
 
 if __name__ == '__main__':
     spec(3, prop_sorted)

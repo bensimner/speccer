@@ -8,7 +8,7 @@ import itertools
 import collections
 from typing import List
 
-from .spec import _assert
+from . import spec
 from .strategy import *
 from .error_types import *
 from . import default_strategies as default
@@ -16,7 +16,6 @@ from . import default_strategies as default
 __all__ = [
         'Model',
         'command',
-        'validate',
 ]
 
 
@@ -45,6 +44,10 @@ class Partials:
         self.values = None
 
     def validate(self):
+        with spec.enable_assertions_logging(False):
+            return self._validate()
+
+    def _validate(self):
         '''Check that the cmds type check
         '''
         log.debug('* validate{{{}}}'.format(pretty_partials(self, sep=';', return_annotation=False)))
@@ -111,8 +114,6 @@ class Partials:
 
     def __iter__(self):
         return iter(self._partials)
-
-validate = Partials.validate
 
 PartialArg = collections.namedtuple('PartialArg', ['value', 'name', 'annotation'])
 '''A Partially applied argument
@@ -272,6 +273,11 @@ class ModelMeta(type):
 
         cls.Command = type('{}_Command'.format(cls), (), {})
         cls.Commands = type('{}_Calls'.format(cls), (), {})
+        def validate(ps: cls.Commands) -> bool:
+            '''Given a list of partials 'ps' return True if they're valid
+            '''
+            return ps.validate()
+        cls.validate = validate
 
         class _CmdStrat(Strategy[cls.Command]):
             '''A Strategy for generating all permutations of valid commands in a model
