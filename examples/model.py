@@ -6,6 +6,8 @@ import operator
 from speccer import *
 
 class Q:
+    '''A Horribly broken Queue implementation
+    '''
     def __init__(self, n):
         self._size = n + 1
         self._lp = 0
@@ -33,10 +35,11 @@ class Q:
     def __str__(self):
         return 'Queue(size={n})'.format(n=self._size - 1)
 
-MyModel_state = collections.namedtuple('MyModel_state', ['array', 'size'])
+State = collections.namedtuple('State', ['array', 'size'])
 
 class MyModel(Model):
-    _STATE = MyModel_state(None, -1)
+    # initial state
+    _STATE = State(None, -1)
 
     @command()
     def new(n: int) -> Q:
@@ -52,7 +55,7 @@ class MyModel(Model):
     @new.next
     def new(self, args, v):
         n, = args
-        return MyModel_state([], n)
+        return State([], n)
 
     @command()
     def put(q: Q, n: int) -> None:
@@ -65,9 +68,8 @@ class MyModel(Model):
 
     @put.next
     def put(self, args, result):
-        q, v = args
-        self.state.array.append(v)
-        return self.state
+        _, v = args
+        return State(self.state.array + [v], self.state.size)
 
     @command()
     def get(q: Q) -> int:
@@ -79,15 +81,14 @@ class MyModel(Model):
         q, = args
         assertTrue(len(arr) > 0)
 
-    @get.next
-    def get(self, args, result):
-        self.state.array[:] = self.state.array[1:]
-        return self.state
-
     @get.post
     def get(self, args, result):
         arr, _ = self.state
         assertEqual(arr[0], result)
+
+    @get.next
+    def get(self, args, result):
+        return State(self.state.array[1:], self.state.size)
     
     @command()
     def count(q: Q) -> int:
