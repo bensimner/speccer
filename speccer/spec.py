@@ -61,44 +61,70 @@ def enable_assertions_logging(enabled=True):
     yield
     AssertionsLog = log
 
-def spec(depth, prop, output=True):
+def spec(depth, prop_or_prop_set, output=True):
     '''Given some :class:`Property` 'prop'
     test it against inputs to depth 'depth
     and print any found counter example
     '''
+    def _go(prop):
+        if isinstance(prop, types.FunctionType):
+            f = prop
+            prop = prop()
+            prop.name = f.__name__
 
-    if isinstance(prop, types.FunctionType):
-        f = prop
-        prop = prop()
-        prop.name = f.__name__
+        if not output:
+            return run_clause(depth, prop)
 
-    if not output:
-        return run_clause(depth, prop)
+        t, *args = prop
+        if t == PropertyType.FORALL:
+            return handle_forall(depth, prop, simple_header=True)
+        elif t == PropertyType.EXISTS:
+            return handle_exists(depth, prop, simple_header=True)
+        elif t == PropertyType.EMPTY:
+            return handle_empty(prop, simple_header=True)
 
-    t, *args = prop
-    if t == PropertyType.FORALL:
-        handle_forall(depth, prop)
-    elif t == PropertyType.EXISTS:
-        handle_exists(depth, prop)
-    elif t == PropertyType.EMPTY:
-        handle_empty(prop)
+    try:
+        _first = True
+        for prop in prop_or_prop_set:
+            if not _first:
+                print('')
+            _first = False
 
-def handle_empty(prop):
-    if 0 in LAYOUT:
+            if not _go(prop):
+                break
+        else:
+            print('')
+            print('(OK)')
+    except:
+        _go(prop_or_prop_set)
+
+def handle_empty(prop, simple_header=False):
+    if 0 in LAYOUT and not simple_header:
         print(LAYOUT[0])
         print('')
 
+    if simple_header:
+        print('-- Property: `{p}`'.format(p=str(prop)))
+
     print(LAYOUT[1][0])
     print('<empty>')
-    print('')
-    print('OK.')
 
-def handle_exists(depth, prop):
+    if not simple_header:
+        print('')
+        print('OK.')
+
+    return True
+
+def handle_exists(depth, prop, simple_header=False):
     '''A Manual run_exists with output
     '''
+
     n = 0
-    if 0 in LAYOUT:
-        print(LAYOUT[0])
+    if not simple_header:
+        if 0 in LAYOUT:
+            print(LAYOUT[0])
+    else:
+        print('-- Property: `{p}`'.format(p=str(prop)))
 
     _, (gen_types, f) = prop
     for result in _run_prop(depth, prop, gen_types, f):
@@ -112,21 +138,26 @@ def handle_exists(depth, prop):
             else:
                 print('Found witness after {n} call(s)'.format(n=n))
 
-            print('In Property `{p}`'.format(p=str(prop)))
+            if not simple_header:
+                print('In Property `{p}`'.format(p=str(prop)))
+
             print(LAYOUT[2])
             print('Found Witness:')
             print_result(result)
-            print('')
-            print('OK.')
-            break
+            if not simple_header:
+                print('')
+                print('OK.')
+            return False
         else: 
             print('.', flush=True, end='')
 
         if n % N == 0:
             print('')
-    else:
-        print('E')
-        print(LAYOUT[1][1])
+
+    print('E')
+    print(LAYOUT[1][1])
+
+    if not simple_header:
         if strategy.FAILED_IMPLICATION:
             print('Ran to {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
         else:
@@ -135,19 +166,25 @@ def handle_exists(depth, prop):
         print('{n}/{n}'.format(n=n))
         print('')
         print('FAIL.')
+
+    return False
     
-def handle_forall(depth, prop):
+def handle_forall(depth, prop, simple_header=False):
     '''A Manual run_forall
     '''
     n = 0
+    dots = 1
+    n_dots = 0
 
-    if 0 in LAYOUT:
-        print(LAYOUT[0])
+    if not simple_header:
+        if 0 in LAYOUT:
+            print(LAYOUT[0])
+    else:
+        print('-- Property: `{p}`'.format(p=str(prop)))
 
     _, (gen_types, f) = prop
     for result in _run_prop(depth, prop, gen_types, f):
         n += 1
-
         if not result.outcome:
             print('E')
             print(LAYOUT[1][1])
@@ -157,18 +194,35 @@ def handle_forall(depth, prop):
             else:
                 print('Failure after {n} call(s)'.format(n=n))
 
-            print('In Property `{p}`'.format(p=str(prop)))
-            print(LAYOUT[2])
+            if not simple_header:
+                print('In Property `{p}`'.format(p=str(prop)))
+
+            if not simple_header:
+                print(LAYOUT[2])
+            else:
+                print('')
+
             print('Found Counterexample:')
+
             print_result(result)
-            print('')
-            print('FAIL.')
-            break
+
+            if not simple_header:
+                print('')
+                print('FAIL.')
+            else:
+                print('')
+                print('(FAIL)')
+            return False
         
-        print('.', flush=True, end='')
-        if n % N == 0:
-            print('')
-    else:
+        if n % dots == 0:
+            print('.', flush=True, end='')
+            n_dots += 1
+        
+            if n_dots % N == 0:
+                print('')
+                dots *= 10
+
+    if not simple_header:
         print('')
         print(LAYOUT[1][0])
         if strategy.FAILED_IMPLICATION:
@@ -179,6 +233,8 @@ def handle_forall(depth, prop):
         print('{n}/{n}'.format(n=n))
         print('')
         print('OK.')
+
+    return True
 
 def print_result(result):
     '''PrettyPrints the witness/counterexample and source to the screen
