@@ -6,6 +6,7 @@ import sys
 import math
 import heapq
 import string
+import typing
 import logging
 import inspect
 import itertools
@@ -335,7 +336,24 @@ class StratMeta(abc.ABCMeta):
                 StratMeta._current_strategies[s] = GenStrat
                 return GenStrat
             except AttributeError:
-                raise MissingStrategyError('Cannot get Strategy instance for ~{}, not a typing.Generic instance'.format(t))
+                try:
+                    tuple_params = t.__tuple_params__
+                    if tuple_params is None:
+                        raise MissingStrategyError
+                    tuple_use_ellipsis = t.__tuple_use_ellipsis__
+                    strat_origin = self.get_strat_instance(typing.Tuple)
+                    s = self.new(t)
+                    def generate(self, d, *args):
+                        strat_instance = strat_origin(d)
+                        yield from strat_instance.generate(d, *(tuple_params + args))
+
+                    name = 'GeneratedTuple_[{}]'.format(tuple(map(lambda p: p.__name__, tuple_params)))
+                    GenStrat = type(name, (s,), dict(generate=generate))
+                    GenStrat.__module__ = strat_origin.__module__
+                    StratMeta._current_strategies[s] = GenStrat
+                    return GenStrat
+                except AttributeError:
+                    raise MissingStrategyError('Cannot get Strategy instance for ~{}, not a typing.Generic instance'.format(t))
         raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
 
 class StrategyIterator:
