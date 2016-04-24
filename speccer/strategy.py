@@ -112,17 +112,6 @@ def value_args(depth, *types):
     ''' 
     yield from generate_args_from_strategies(*map(lambda t: values(depth, t), types))
 
-def _pairs(n=2):
-    '''Perform a memoized breadth-first search through the
-    tuples of length n
-    '''
-    t = tuple(0 for _ in range(n))
-    deq = collections.deque([t])
-    memo = {}
-
-    while True:
-        t = deq.popleft()
-
 class PairGen:
     @functools.total_ordering
     class _Pair:
