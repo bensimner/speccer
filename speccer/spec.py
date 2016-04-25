@@ -166,6 +166,9 @@ def handle_exists(depth, prop, simple_header=False):
         print('{n}/{n}'.format(n=n))
         print('')
         print('FAIL.')
+    else:
+        print('')
+        print('({n} test cases)'.format(n=n))
 
     return False
     
@@ -233,6 +236,9 @@ def handle_forall(depth, prop, simple_header=False):
         print('{n}/{n}'.format(n=n))
         print('')
         print('OK.')
+    else:
+        print('')
+        print('({n} test cases)'.format(n=n))
 
     return True
 
