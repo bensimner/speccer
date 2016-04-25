@@ -83,20 +83,28 @@ def spec(depth, prop_or_prop_set, output=True):
         elif t == PropertyType.EMPTY:
             return handle_empty(prop, simple_header=True)
 
-    try:
-        _first = True
-        for prop in prop_or_prop_set:
-            if not _first:
-                print('')
-            _first = False
+    def _next(prop):
+        res = _go(prop)
+        if res.outcome:
+            if res.source.type == PropertyType.EXISTS:
+                print(LAYOUT[1][1])
+                print()
+        else:
+            return False
+        return True
 
-            if not _go(prop):
+    try:
+        prop_or_prop_set = iter(prop_or_prop_set)
+    except:
+        return _go(prop_or_prop_set)
+    else:
+        print('')
+        for prop in prop_or_prop_set:
+            if not _next(prop):
                 break
         else:
             print('')
             print('(OK)')
-    except:
-        _go(prop_or_prop_set)
 
 def handle_empty(prop, simple_header=False):
     if 0 in LAYOUT and not simple_header:
@@ -113,13 +121,15 @@ def handle_empty(prop, simple_header=False):
         print('')
         print('OK.')
 
-    return True
+    return Success(prop)
 
 def handle_exists(depth, prop, simple_header=False):
     '''A Manual run_exists with output
     '''
 
     n = 0
+    dots = 1
+    n_dots = 0
     if not simple_header:
         if 0 in LAYOUT:
             print(LAYOUT[0])
@@ -131,14 +141,14 @@ def handle_exists(depth, prop, simple_header=False):
         n += 1
         if result.outcome:
             print('*')
-            print(LAYOUT[1][0])
-
-            if strategy.FAILED_IMPLICATION:
-                print('Found witness after {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
-            else:
-                print('Found witness after {n} call(s)'.format(n=n))
-
             if not simple_header:
+                print(LAYOUT[1][0])
+
+                if strategy.FAILED_IMPLICATION:
+                    print('Found witness after {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
+                else:
+                    print('Found witness after {n} call(s)'.format(n=n))
+
                 print('In Property `{p}`'.format(p=str(prop)))
 
             print(LAYOUT[2])
@@ -147,12 +157,16 @@ def handle_exists(depth, prop, simple_header=False):
             if not simple_header:
                 print('')
                 print('OK.')
-            return False
+            return Success(prop)
         else: 
-            print('.', flush=True, end='')
+            if n % dots == 0:
+                print('.', flush=True, end='')
+                n_dots += 1
+            
+                if n_dots % N == 0:
+                    print('')
+                    dots *= 10
 
-        if n % N == 0:
-            print('')
 
     print('E')
     print(LAYOUT[1][1])
@@ -170,7 +184,7 @@ def handle_exists(depth, prop, simple_header=False):
         print('')
         print('({n} test cases)'.format(n=n))
 
-    return False
+    return Failure(prop)
     
 def handle_forall(depth, prop, simple_header=False):
     '''A Manual run_forall
@@ -206,7 +220,6 @@ def handle_forall(depth, prop, simple_header=False):
                 print('')
 
             print('Found Counterexample:')
-
             print_result(result)
 
             if not simple_header:
@@ -215,7 +228,7 @@ def handle_forall(depth, prop, simple_header=False):
             else:
                 print('')
                 print('(FAIL)')
-            return False
+            return Failure(prop)
         
         if n % dots == 0:
             print('.', flush=True, end='')
@@ -240,7 +253,7 @@ def handle_forall(depth, prop, simple_header=False):
         print('')
         print('({n} test cases)'.format(n=n))
 
-    return True
+    return Success(prop)
 
 def print_result(result):
     '''PrettyPrints the witness/counterexample and source to the screen
