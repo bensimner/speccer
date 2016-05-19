@@ -14,7 +14,7 @@ import functools
 import contextlib
 import collections
 
-from .error_types import *
+from ._types import *
 
 FAILED_IMPLICATION = 0
 log = logging.getLogger('strategy')
@@ -31,7 +31,17 @@ __all__ = [
             'implication',
 ]
 
-def implication(implication_function):
+@contextlib.contextmanager
+def implication():
+    '''A contextmanager for implications
+    This tries to catch all assertions and do things with it
+    '''
+    try:
+        yield
+    except AssertionFailure as e:
+        raise ImplicationFailure
+
+def decl_implication(implication_function):
     impl_name = implication_function.__name__
     sig = inspect.signature(implication_function)
     param = next(iter(sig.parameters.values()))
@@ -39,7 +49,7 @@ def implication(implication_function):
     t = param.annotation
     if t is sig.empty:
         # maybe try type inference?
-        raise ValueError('implication: `{}` missing type-annotation for parameter: `{}`'.format(impl_name, param.name)) 
+        raise ValueError('implication: `{}` missing type-annotation for parameter: `{}`'.format(impl_name, param.name))
 
     def decorator(p_func):
         @mapS(Strategy[t])
@@ -48,7 +58,7 @@ def implication(implication_function):
             try:
                 if implication_function(v) == False:
                     FAILED_IMPLICATION += 1
-                    raise StopIteration
+                    return
             except AssertionFailure as e:
                 e._info['value'] = v
                 raise
@@ -207,7 +217,16 @@ i.e. 00 01 10 11 before 20 or 02 (1s before 2s)
                 t += (values[i][j],)
             else:
                 pair_next = None
-                yield t
+
+                # upon receiving ImplicationFailure when generating tuples
+                # when generating tuples
+                # assume the _last_ generated tuple was the failure case
+                # and skip its, and only its, branch
+                try:
+                    yield t
+                except ImplicationFailure:
+                    gens[-1].throw(ImplicationFailure)
+
                 continue
             break
 
@@ -328,7 +347,8 @@ class StratMeta(abc.ABCMeta):
                 s = self.new(t)
                 def generate(self, d, *args):
                     strat_instance = strat_origin(d)
-                    yield from strat_instance.generate(d, *(params + args))
+                    gen = strat_instance.generate(d, *(params + args))
+                    yield from gen
 
                 name = 'Generated_{}[{}]'.format(strat_origin.__name__, tuple(map(lambda p: p.__name__, params)))
                 GenStrat = type(name, (s,), dict(generate=generate))
@@ -363,6 +383,9 @@ class StrategyIterator:
 
         name = str(strat)
         self.log = logging.getLogger('strategy.iterator({})'.format(name))
+
+    def throw(self, excp, *args):
+        self._generator.throw(excp, args)
 
     def __next__(self):
         if self.strategy._depth > 0:
@@ -400,9 +423,15 @@ class Strategy(metaclass=StratMeta):
         types = list(map(lambda p: p[1].annotation, sig.parameters.items()))
 
         self.log.debug('cons{}, d={}'.format(tuple(types), self._depth))
-        for argt in value_args(self._depth - 1, *types):
+        v_args = value_args(self._depth - 1, *types)
+
+        for argt in v_args:
             self.log.debug('cons: {}'.format(argt))
-            yield f(*argt)
+            try:
+                yield f(*argt)
+            except ImplicationFailure:
+                # if cons fails then throw implication failure to the generators for `f`
+                v_args.throw(ImplicationFailure)
 
     @abc.abstractmethod
     def generate(self, depth, *args):

@@ -7,13 +7,13 @@ def is_sorted(xs: List[T]) -> bool:
     '''
     return list(sorted(xs)) == xs
 
-def prop_sorted():
+def prop_sorted(context):
     '''A sorted list of length 2 exists
     '''
     return exists(List[int], 
-            lambda xs: assertThat(is_sorted, xs) and assertEqual(len(xs), 2))
+            lambda xs: context.assertThat(is_sorted, xs) and context.assertEqual(len(xs), 2))
 
-def prop_nested():
+def prop_nested(_):
     return forall(List[int],
             lambda xs: forall(int,
                 lambda y: y in xs))

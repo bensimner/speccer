@@ -10,13 +10,19 @@ from typing import List
 
 from . import spec
 from .strategy import *
-from .error_types import *
+from ._types import *
 from . import default_strategies as default
 
 __all__ = [
         'Model',
         'command',
 ]
+
+
+'''A `Model` is a class with a bunch of `command` methods
+that track the state of an api.
+The `Model` comes with an initial state
+and can be validated'''
 
 
 def empty(self, *_):
@@ -44,10 +50,6 @@ class Partials:
         self.values = None
 
     def validate(self):
-        with spec.enable_assertions_logging(False):
-            return self._validate()
-
-    def _validate(self):
         '''Check that the cmds type check
         '''
         log.debug('* validate{{{}}}'.format(pretty_partials(self, sep=';', return_annotation=False)))

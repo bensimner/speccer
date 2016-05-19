@@ -14,6 +14,7 @@ class Property(tuple):
     def __init__(self, type, args):
         self.strategies = {}
         self.name = None
+        self.type = type
         # each Property clause can have a parent clause
         # for nested properties
         self.parent = None
@@ -25,6 +26,27 @@ class Property(tuple):
         # each failure can have a reason string attached
         # with a short description as to why it failed.
         self.reason = None
+
+        # the parent property set
+        self._prop_set = None
+
+        # list of assertions over the last property call
+        self.assertions = []
+        self.enable_assertions = True
+
+    @property
+    def prop_set(self):
+        if self._prop_set:
+            return self._prop_set
+        
+        if self.parent:
+            return self.parent.prop_set
+
+        return None
+
+    @prop_set.setter
+    def prop_set(self, v):
+        self._prop_set = v
 
     def __str__(self):
         return self.name
@@ -45,6 +67,3 @@ def exists(*args):
     '''
     *types, f = args
     return Property(PropertyType.EXISTS, [types, f])
-
-p = forall(int, lambda x: None)
-p = exists(int, p)

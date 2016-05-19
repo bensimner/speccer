@@ -1,28 +1,21 @@
 import sys
 import time
 import types
+import typing
 import inspect
 import logging
+import functools
 import traceback
 import contextlib
 import collections
 
-from .error_types import *
+from ._types import *
 from .clauses import *
 from .import strategy
 from .import model
 
 __all__ = ['spec',
-        'assertTrue',
-        'assertFalse',
-        'assertThat',
-        'assertEqual',
-        'assertNotEqual',
-        'assertIs',
-        'assertIsNot',
-        'assertIsInstance',
-        'assertIsNotInstance',
-        'enable_assertions_logging',
+        'PropertySet',
         'exists',
         'forall',
 ]
@@ -32,9 +25,7 @@ Result = collections.namedtuple('Result', ['outcome', 'source'])
 Failure = lambda source: Result(False, source)
 Success = lambda source: Result(True, source)
 
-Assertions = []
 AssertionSource = None
-AssertionsLog = True
 
 N = 40
 LAYOUT = {
@@ -42,35 +33,39 @@ LAYOUT = {
         2: '-'*40,
 }
 
-def _assert(p, succ_m=None, fail_m='_assert'):
+def _assert(prop, p, succ_m=None, fail_m='_assert'):
     if not p:
         raise AssertionFailure(fail_m)
-    elif AssertionsLog:
+    elif prop.enable_assertions:
         if succ_m:
-            Assertions.append((AssertionSource, succ_m))
+            prop.assertions.append((prop, succ_m))
         else:
-            Assertions.append((AssertionSource, '¬({})'.format(fail_m)))
+            prop.assertions.append((prop, '¬({})'.format(fail_m)))
 
     return True
 
-@contextlib.contextmanager
-def enable_assertions_logging(enabled=True):
-    global AssertionsLog
-    log = AssertionsLog
-    AssertionsLog = enabled
-    yield
-    AssertionsLog = log
-
 def spec(depth, prop_or_prop_set, output=True):
-    '''Given some :class:`Property` 'prop'
+    '''Given some :class:`Property` or :class:`PropertySet` 'prop_or_prop_set'
     test it against inputs to depth 'depth
     and print any found counter example
     '''
+    prop_set = prop_or_prop_set
+    _prop_or_prop_set = prop_or_prop_set
+    if not isinstance(prop_or_prop_set, typing.Iterable):
+        ## re-write prop_or_prop_set into a PropertySet
+        class pset(PropertySet):
+            @functools.wraps(prop_or_prop_set)
+            def property_thing(self, *args, **kwargs):
+                return _prop_or_prop_set(self, *args, **kwargs)
+        prop_set = pset()
+
     def _go(prop):
         if isinstance(prop, types.FunctionType):
             f = prop
-            prop = prop()
+            prop = prop(prop_set)
             prop.name = f.__name__
+
+        prop.prop_set = prop_set
 
         if not output:
             return run_clause(depth, prop)
@@ -83,20 +78,29 @@ def spec(depth, prop_or_prop_set, output=True):
         elif t == PropertyType.EMPTY:
             return handle_empty(prop, simple_header=True)
 
-    try:
-        _first = True
-        for prop in prop_or_prop_set:
-            if not _first:
-                print('')
-            _first = False
-
-            if not _go(prop):
-                break
+    def _next(prop):
+        res = _go(prop)
+        if res.outcome:
+            if res.source.type == PropertyType.EXISTS:
+                print(LAYOUT[1][1])
+                print()
         else:
-            print('')
-            print('(OK)')
-    except:
-        _go(prop_or_prop_set)
+            return False
+        return True
+
+    prop_or_prop_set = iter(prop_set)
+
+    if len(prop_set) > 1:
+        print('')
+
+    for prop in prop_or_prop_set:
+        if not _next(prop):
+            break
+    else:
+        print('')
+        print('(OK)')
+
+
 
 def handle_empty(prop, simple_header=False):
     if 0 in LAYOUT and not simple_header:
@@ -113,13 +117,15 @@ def handle_empty(prop, simple_header=False):
         print('')
         print('OK.')
 
-    return True
+    return Success(prop)
 
 def handle_exists(depth, prop, simple_header=False):
     '''A Manual run_exists with output
     '''
 
     n = 0
+    dots = 1
+    n_dots = 0
     if not simple_header:
         if 0 in LAYOUT:
             print(LAYOUT[0])
@@ -131,14 +137,14 @@ def handle_exists(depth, prop, simple_header=False):
         n += 1
         if result.outcome:
             print('*')
-            print(LAYOUT[1][0])
-
-            if strategy.FAILED_IMPLICATION:
-                print('Found witness after {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
-            else:
-                print('Found witness after {n} call(s)'.format(n=n))
-
             if not simple_header:
+                print(LAYOUT[1][0])
+
+                if strategy.FAILED_IMPLICATION:
+                    print('Found witness after {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
+                else:
+                    print('Found witness after {n} call(s)'.format(n=n))
+
                 print('In Property `{p}`'.format(p=str(prop)))
 
             print(LAYOUT[2])
@@ -147,12 +153,16 @@ def handle_exists(depth, prop, simple_header=False):
             if not simple_header:
                 print('')
                 print('OK.')
-            return False
+            return Success(prop)
         else: 
-            print('.', flush=True, end='')
+            if n % dots == 0:
+                print('.', flush=True, end='')
+                n_dots += 1
+            
+                if n_dots % N == 0:
+                    print('')
+                    dots *= 10
 
-        if n % N == 0:
-            print('')
 
     print('E')
     print(LAYOUT[1][1])
@@ -166,8 +176,11 @@ def handle_exists(depth, prop, simple_header=False):
         print('{n}/{n}'.format(n=n))
         print('')
         print('FAIL.')
+    else:
+        print('')
+        print('({n} test cases)'.format(n=n))
 
-    return False
+    return Failure(prop)
     
 def handle_forall(depth, prop, simple_header=False):
     '''A Manual run_forall
@@ -203,7 +216,6 @@ def handle_forall(depth, prop, simple_header=False):
                 print('')
 
             print('Found Counterexample:')
-
             print_result(result)
 
             if not simple_header:
@@ -212,7 +224,7 @@ def handle_forall(depth, prop, simple_header=False):
             else:
                 print('')
                 print('(FAIL)')
-            return False
+            return Failure(prop)
         
         if n % dots == 0:
             print('.', flush=True, end='')
@@ -233,8 +245,11 @@ def handle_forall(depth, prop, simple_header=False):
         print('{n}/{n}'.format(n=n))
         print('')
         print('OK.')
+    else:
+        print('')
+        print('({n} test cases)'.format(n=n))
 
-    return True
+    return Success(prop)
 
 def print_result(result):
     '''PrettyPrints the witness/counterexample and source to the screen
@@ -264,13 +279,13 @@ def print_result(result):
             print('')
 
     print('Reason:')
-    for ass_src, r in Assertions:
+    for ass_src, r in p.assertions:
         if ass_src:
             print('> {}, assert\t{}'.format(clause_to_path(ass_src), r))
         else:
             print('> assert\t{}'.format(r))
 
-    if len(Assertions) > 0:
+    if len(p.assertions) > 0:
         print()
 
     if isinstance(src.reason, Exception):
@@ -369,7 +384,6 @@ def _get_args(depth, prop, types, f):
     yield from strategy.generate_args_from_strategies(*strats)
 
 def _run_prop(depth, prop, types, f):
-    global Assertions, AssertionSource
     args = _get_args(depth, prop, types, f)
     s = inspect.signature(f)
     while True:
@@ -388,9 +402,8 @@ def _run_prop(depth, prop, types, f):
             break
         
         try:
-            Assertions = []
-            AssertionSource = prop
-
+            prop.assertions = []
+            prop.prop_set.current_prop = prop
             v = f(*argt)
             if v == False:
                 prop.reason = '{} property returned `False`'.format(clause_to_path(prop))
@@ -403,45 +416,75 @@ def _run_prop(depth, prop, types, f):
         except AssertionFailure as e:
             prop.reason = e._msg
             yield Failure(prop)
+        except ImplicationFailure:
+            # if trying to evaluate the property throws an ImplicationFailure then 
+            # send the ImplicationFailuare to the arg generator to deal with
+            args.throw(ImplicationFailure)
+            continue
         except Exception as e:
             prop.reason = e
             yield Failure(prop)
         else:
             prop.reason = '`{}` returned true'.format(prop)
             yield Success(prop)
-    
 
-# UnitTest style assertions
-def assertThat(f, *args, fmt='{name}({argv})', fmt_fail='{name}({argv}) is false'):
-    s_args = ', '.join(map(repr,args))
-    
-    try:
-        name = f.__code__.co_name
-    except AttributeError:
-        name = str(f)
+class PropSetMeta(type):
+    def __new__(mcls, name, bases, namespace):
+        cls = super().__new__(mcls, name, bases, namespace)
+        def f(p, name):
+            p.name = name
+            return p
+        props = {f(p,name)
+                for name, p in namespace.items()
+                if name.startswith('prop') or getattr(p,'__isproperty__',False)}
+        cls.__props__ = props
+        return cls
 
-    return _assert(f(*args), fmt.format(argv=s_args, name=name), fmt_fail.format(argv=s_args, name=name))
+class PropertySet(metaclass=PropSetMeta):
+    def __init__(self):
+        # the currently executing Property
+        self.current_prop = None
 
-def assertTrue(a, fmt='True', fmt_fail='False'):
-    return _assert(a, fmt.format(a=a), fmt_fail.format(a=a))
+    # UnitTest style assertions
+    def assertThat(self, f, *args, fmt='{name}({argv})', fmt_fail='{name}({argv}) is false'):
+        s_args = ', '.join(map(repr,args))
+        
+        try:
+            name = f.__code__.co_name
+        except AttributeError:
+            name = str(f)
 
-def assertFalse(a, fmt='False', fmt_fail='True'):
-    return _assert(not a, fmt.format(a=a), fmt_fail.format(a=a))
+        return _assert(self.current_prop, 
+                f(*args), 
+                fmt.format(argv=s_args, name=name), 
+                fmt_fail.format(argv=s_args, name=name))
 
-def assertEqual(a, b, fmt='{a} == {b}', fmt_fail='{a} != {b}'):
-    return _assert(a == b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+    def __iter__(self):
+        return iter(self.__props__)
 
-def assertIs(a, b, fmt='{a} is {b}', fmt_fail='{a} is not {b}'):
-    return _assert(a is b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+    def __len__(self):
+        return len(self.__props__)
 
-def assertNotEqual(a, b, fmt='{a} != {b}', fmt_fail='{a} == {b}'):
-    return _assert(a != b, '{} != {}'.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+    def assertTrue(self, a, fmt='True', fmt_fail='False'):
+        return _assert(self.current_prop, a, fmt.format(a=a), fmt_fail.format(a=a))
 
-def assertIsNot(a, b, fmt='{a} is not {b}', fmt_fail='{a} is {b}'):
-    return _assert(a is not b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+    def assertFalse(self, a, fmt='False', fmt_fail='True'):
+        return _assert(self.current_prop, not a, fmt.format(a=a), fmt_fail.format(a=a))
 
-def assertIsNotInstance(a, b, fmt='not isinstance({a}, {b})', fmt_fail='isinstance({a}, {b})'):
-    return _assert(not isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+    def assertEqual(self, a, b, fmt='{a} == {b}', fmt_fail='{a} != {b}'):
+        return _assert(self.current_prop, a == b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
 
-def assertIsInstance(a, b, fmt='isinstance({a}, {b})', fmt_fail='not isinstance({a}, {b})'):
-    return _assert(isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+    def assertIs(self, a, b, fmt='{a} is {b}', fmt_fail='{a} is not {b}'):
+        return _assert(self.current_prop, a is b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+
+    def assertNotEqual(self, a, b, fmt='{a} != {b}', fmt_fail='{a} == {b}'):
+        return _assert(self.current_prop, a != b, '{} != {}'.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+
+    def assertIsNot(self, a, b, fmt='{a} is not {b}', fmt_fail='{a} is {b}'):
+        return _assert(self.current_prop, a is not b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+
+    def assertIsNotInstance(self, a, b, fmt='not isinstance({a}, {b})', fmt_fail='isinstance({a}, {b})'):
+        return _assert(self.current_prop, not isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+
+    def assertIsInstance(self, a, b, fmt='isinstance({a}, {b})', fmt_fail='not isinstance({a}, {b})'):
+        return _assert(isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))

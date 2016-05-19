@@ -7,13 +7,13 @@ def is_sorted(xs: List[T]) -> bool:
     '''
     return list(sorted(xs)) == xs
 
-def prop_sortedReversed():
+def prop_sortedReversed(context):
     '''a List of int's is sorted when reversed
 
     (obviously False, to test output)
     '''
     return forall(List[int], 
-            lambda xs: assertThat(is_sorted, list(reversed(xs))))
+            lambda xs: context.assertThat(is_sorted, list(reversed(xs))))
 
 if __name__ == '__main__':
     spec(3, prop_sortedReversed)

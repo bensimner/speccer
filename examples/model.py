@@ -101,12 +101,16 @@ class MyModel(Model):
 
 # TODO: Implication of validating partials again
 # this needs type inference or something...
-@implication(MyModel.validate)
-def prop_model():
+def prop_model(context):
     '''Just check that the queue matches the model
     '''
-    return forall(MyModel.Commands,
-            lambda cmds: cmds.validate())
+    def check(cmds):
+        with implication():
+            context.assertThat(cmds.validate)
+
+        cmds.validate()
+
+    return forall(MyModel.Commands, check)
 
 if __name__ == '__main__':
     spec(6, prop_model)
