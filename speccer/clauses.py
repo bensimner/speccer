@@ -1,6 +1,5 @@
 from builtins import tuple as _tuple
 import enum
-import collections
 
 class PropertyType(enum.Enum):
     FORALL = 1
@@ -46,6 +45,3 @@ def exists(*args):
     '''
     *types, f = args
     return Property(PropertyType.EXISTS, [types, f])
-
-p = forall(int, lambda x: None)
-p = exists(int, p)

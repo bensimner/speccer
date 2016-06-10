@@ -8,7 +8,7 @@ except ImportError:
     sys.exit(1)
 
 import logging
-from .strategy import *
+from .strategy import Strategy
 from . import strategy
 
 LETTERS = string.ascii_lowercase
@@ -26,7 +26,7 @@ class IntStrat(Strategy[int]):
     def generate(self, depth):
         yield 0
 
-        for i in range(1, 1+depth):
+        for i in range(1, 1 + depth):
             yield i
             yield -i
 
@@ -41,7 +41,7 @@ class ListStrat(Strategy[List[T]]):
 class TupleStrat(Strategy[Tuple]):
     def generate(self, depth, *ts):
         yield from strategy.value_args(depth, *ts)
-    
+
 class StrStrat(Strategy[str]):
     def generate(self, depth):
         m = min(depth + 1, len(LETTERS))

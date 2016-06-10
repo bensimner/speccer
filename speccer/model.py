@@ -1,21 +1,18 @@
 # Models.py - Definition of a Model
-# author: Ben Simner 
+# author: Ben Simner
 
 import logging
 import inspect
-import functools
-import itertools
 import collections
 from typing import List
 
 from . import spec
-from .strategy import *
-from .error_types import *
-from . import default_strategies as default
+from .strategy import Strategy, values, value_args, mapS
+from .error_types import MissingStrategyError
 
 __all__ = [
-        'Model',
-        'command',
+    'Model',
+    'command',
 ]
 
 
@@ -67,7 +64,8 @@ class Partials:
             log.debug('validate({} : {})'.format(cmd, args))
 
             try:
-                if cmd.fpre(self.model, args) == False:
+                # precondition can just be `pass` which is not a failure case
+                if cmd.fpre(self.model, args) is False:
                     log.debug('*** FAIL: Pre-condition False')
                     return False
             except AssertionFailure as e:
@@ -76,21 +74,22 @@ class Partials:
                 return False
 
             try:
-                v = cmd.fdo(*args) # maybe add `self.model' ?
+                v = cmd.fdo(*args)  # maybe add `self.model' ?
             except AssertionFailure as e:
                 e._info['src'] = '{}_execute'.format(cmd.name)
                 raise
 
             self.values.append(v)
-            
+
             try:
-                if cmd.fpost(self.model, args, v) == False:
+                # as with pre-condition can just `pass`
+                if cmd.fpost(self.model, args, v) is False:
                     log.debug('*** FAIL: Post-condition False')
                     return False
             except AssertionFailure as e:
                 e._info['src'] = '{}_postcondition'.format(cmd.name)
                 raise
-        
+
             # if passes post-condition, advance to next state
             self.model.state = cmd.fnext(self.model, args, v)
 
@@ -120,7 +119,7 @@ PartialArg = collections.namedtuple('PartialArg', ['value', 'name', 'annotation'
 here, name can be None meaning it is just a literal
 '''
 
-log = logging.getLogger('model') 
+log = logging.getLogger('model')
 
 def PartialArg_str(self):
     if self.name:
@@ -136,7 +135,7 @@ def GET_VAR(i):
     while i >= len(VAR_NAMES):
         VAR_LENGTH += 1
         VAR_NAMES = list(values(VAR_LENGTH, str))
-    
+
     return VAR_NAMES[i]
 
 def pretty_partials(partials, values=None, return_annotation=True, sep='; '):
@@ -144,7 +143,7 @@ def pretty_partials(partials, values=None, return_annotation=True, sep='; '):
         name = partial.command.name
         var = partial.var
         args = partial.args
-        
+
         s = name
         li_args = []
         for a in args:
@@ -212,7 +211,7 @@ class Command:
 
     @property
     def signature(self):
-        s = inspect.signature(self.fdo) 
+        s = inspect.signature(self.fdo)
         return s
 
     @property
@@ -224,15 +223,15 @@ class Command:
 
     @property
     def parameters(self):
-        s = self.signature 
-        return s.parameters 
+        s = self.signature
+        return s.parameters
 
     @property
     def param_types(self):
         for p in self.parameters.values():
             yield p.annotation
 
-    def __get__(self, obj, objtype=None): 
+    def __get__(self, obj, objtype=None):
         '''Getting a Command is looking up its `fdo` function
         '''
         if obj is None:
@@ -263,7 +262,7 @@ class ModelMeta(type):
     def __new__(mcls, name, bases, namespace):
         cmdlist = list()
 
-        for name,value in namespace.items():
+        for name, value in namespace.items():
             if isinstance(value, Command):
                 cmdlist.append(value)
 
@@ -273,6 +272,7 @@ class ModelMeta(type):
 
         cls.Command = type('{}_Command'.format(cls), (), {})
         cls.Commands = type('{}_Commands'.format(cls), (Partials,), {})
+
         def validate(ps: cls.Commands) -> bool:
             '''Given a list of partials 'ps' return True if they're valid
             '''
@@ -297,12 +297,12 @@ class ModelMeta(type):
             args = collections.deque(value_args(depth, *types))
             while args:
                 argt = args.popleft()
-                for i, (t, v) in enumerate(zip(types, argt)): 
+                for i, (t, v) in enumerate(zip(types, argt)):
                     # go back through partials and look for t's
                     # by looking it up in `replacements`
                     if not isinstance(v, ModelMeta.replacement_t):
-                        for r in replacements[t]: 
-                            args.append(argt[:i] + (r,) + argt[1+i:]) # something like that
+                        for r in replacements[t]:
+                            args.append(argt[:i] + (r,) + argt[1 + i:])  # something like that
 
                     # No strategy for generating t's
                     # so do not leak this argt to the Partial list
@@ -322,11 +322,10 @@ class ModelMeta(type):
         @mapS(Strategy[List[cls.Command]], register_type=cls.Commands)
         def _PartialStrat(depth, cmds):
             log.debug('_PartialStrat')
-            #print('PartialStrat{{{}}}'.format(cmds))
 
             for partials in _generate_partials(depth, cmds, []):
                 var_c = 0
-                partials = list(partials) 
+                partials = list(partials)
                 for i, p in enumerate(partials):
                     for j, a in enumerate(p.args):
                         # this arg should reference earlier partial
@@ -351,7 +350,7 @@ class ModelMeta(type):
         return cls
 
 class Model(object, metaclass=ModelMeta):
-    '''A :class:`Model` is some state-machine model of 
+    '''A :class:`Model` is some state-machine model of
     some arbitrary API
     '''
     def __init__(self):

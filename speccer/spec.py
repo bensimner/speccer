@@ -1,5 +1,3 @@
-import sys
-import time
 import types
 import inspect
 import logging
@@ -12,25 +10,32 @@ from .clauses import *
 from .import strategy
 from .import model
 
-__all__ = ['spec',
-        'assertTrue',
-        'assertFalse',
-        'assertThat',
-        'assertEqual',
-        'assertNotEqual',
-        'assertIs',
-        'assertIsNot',
-        'assertIsInstance',
-        'assertIsNotInstance',
-        'enable_assertions_logging',
-        'exists',
-        'forall',
+__all__ = [
+    'spec',
+    'assertTrue',
+    'assertFalse',
+    'assertThat',
+    'assertEqual',
+    'assertNotEqual',
+    'assertIs',
+    'assertIsNot',
+    'assertIsInstance',
+    'assertIsNotInstance',
+    'enable_assertions_logging',
+    'exists',
+    'forall',
 ]
 
 log = logging.getLogger('spec')
+
+# Result type for the result of running a property
 Result = collections.namedtuple('Result', ['outcome', 'source'])
-Failure = lambda source: Result(False, source)
-Success = lambda source: Result(True, source)
+
+def Failure(source):
+    return Result(False, source)
+
+def Success(source):
+    return Result(True, source)
 
 Assertions = []
 AssertionSource = None
@@ -38,8 +43,8 @@ AssertionsLog = True
 
 N = 40
 LAYOUT = {
-        1 : ['-'*40, '='*40],
-        2: '-'*40,
+    1: ['-' * 40, '=' * 40],
+    2: '-' * 40,
 }
 
 def _assert(p, succ_m=None, fail_m='_assert'):
@@ -185,7 +190,7 @@ def handle_exists(depth, prop, simple_header=False):
         print('({n} test cases)'.format(n=n))
 
     return Failure(prop)
-    
+
 def handle_forall(depth, prop, simple_header=False):
     '''A Manual run_forall
     '''
@@ -229,11 +234,11 @@ def handle_forall(depth, prop, simple_header=False):
                 print('')
                 print('(FAIL)')
             return Failure(prop)
-        
+
         if n % dots == 0:
             print('.', flush=True, end='')
             n_dots += 1
-        
+
             if n_dots % N == 0:
                 print('')
                 dots *= 10
@@ -260,12 +265,12 @@ def print_result(result):
     '''
     src = result.source
     parents = []
-    
+
     p = src
     while p:
         parents.append(p)
         p = p.parent
-    
+
     while parents:
         p = parents.pop()
         counter = p.counter
@@ -329,16 +334,16 @@ def clause_to_path(clause):
         type_name = p[0].name
         types = p[1][0]
         if p.name is not None:
-            name = '{}::{}({})'.format(name, p[0].name, ', '.join(map(pretty_type,types)))
+            name = '{}::{}({})'.format(name, p[0].name, ', '.join(map(pretty_type, types)))
             if not location:
                 location = name
             else:
                 location = '{}:{}'.format(name, location)
         else:
             if location:
-                location = '{}({}):{}'.format(type_name, ', '.join(map(pretty_type,types)), location)
+                location = '{}({}):{}'.format(type_name, ', '.join(map(pretty_type, types)), location)
             else:
-                location = '{}({})'.format(type_name, ', '.join(map(pretty_type,types)))
+                location = '{}({})'.format(type_name, ', '.join(map(pretty_type, types)))
         p = p.parent
     return location
 
@@ -347,7 +352,7 @@ def run_clause(depth, clause):
     run it and yield all the results
     '''
     t, *args = clause
-    if  t == PropertyType.FORALL:
+    if t == PropertyType.FORALL:
         return run_forall(depth, clause)
     elif t == PropertyType.EXISTS:
         return run_exists(depth, clause)
@@ -411,7 +416,7 @@ def _run_prop(depth, prop, types, f):
             AssertionSource = prop
 
             v = f(*argt)
-            if v == False:
+            if not v:
                 prop.reason = '{} property returned `False`'.format(clause_to_path(prop))
                 yield Failure(prop)
                 continue
@@ -428,12 +433,12 @@ def _run_prop(depth, prop, types, f):
         else:
             prop.reason = '`{}` returned true'.format(prop)
             yield Success(prop)
-    
+
 
 # UnitTest style assertions
 def assertThat(f, *args, fmt='{name}({argv})', fmt_fail='{name}({argv}) is false'):
-    s_args = ', '.join(map(repr,args))
-    
+    s_args = ', '.join(map(repr, args))
+
     try:
         name = f.__code__.co_name
     except AttributeError:

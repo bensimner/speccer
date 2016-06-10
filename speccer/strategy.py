@@ -1,34 +1,30 @@
 # strategy.py - Strategies for producing arguments to model commands
-# author: Ben Simner 
+# author: Ben Simner
 
 import abc
-import sys
-import math
 import heapq
-import string
 import typing
 import logging
 import inspect
-import itertools
 import functools
 import contextlib
 import collections
 
-from .error_types import *
+from .error_types import MissingStrategyError, AssertionFailure
 
 FAILED_IMPLICATION = 0
 log = logging.getLogger('strategy')
 
 __all__ = [
-            'value_args', 
-            'values',
-            'Strategy',
-            'register',
-            'has_strat_instance',
-            'get_strat_instance',
-            'mapS',
-            'change_strategies',
-            'implication',
+    'value_args',
+    'values',
+    'Strategy',
+    'register',
+    'has_strat_instance',
+    'get_strat_instance',
+    'mapS',
+    'change_strategies',
+    'implication',
 ]
 
 def implication(implication_function):
@@ -39,14 +35,14 @@ def implication(implication_function):
     t = param.annotation
     if t is sig.empty:
         # maybe try type inference?
-        raise ValueError('implication: `{}` missing type-annotation for parameter: `{}`'.format(impl_name, param.name)) 
+        raise ValueError('implication: `{}` missing type-annotation for parameter: `{}`'.format(impl_name, param.name))
 
     def decorator(p_func):
         @mapS(Strategy[t])
         def newStrat(d, v, *args):
             global FAILED_IMPLICATION
             try:
-                if implication_function(v) == False:
+                if implication_function(v) is False:
                     FAILED_IMPLICATION += 1
                     raise StopIteration
             except AssertionFailure as e:
@@ -55,7 +51,7 @@ def implication(implication_function):
             else:
                 yield v
 
-        newStrat.__name__ = implication_function.__name__ 
+        newStrat.__name__ = implication_function.__name__
 
         @functools.wraps(p_func)
         def p(*args, **kwargs):
@@ -73,7 +69,7 @@ def values(depth, t):
 def change_strategies(strategies):
     c_strats = StratMeta._current_strategies.copy()
     c_strats.update(strategies)
-    
+
     set_strategies(c_strats)
     yield
     reset_strategies()
@@ -89,9 +85,9 @@ def reset_strategies():
     '''
     StratMeta._current_strategies = StratMeta.__strats__
 
-def value_args(depth, *types): 
+def value_args(depth, *types):
     '''Creates a `Strategy' which generates all tuples of type *types
-    i.e. 
+    i.e.
         value_args(1, str, int) ->
             ('a', 0)
             ('a', 1)
@@ -110,7 +106,7 @@ def value_args(depth, *types):
             (0, MissingStrategyError)
             (1, MissingStrategyError)
             (-1, MissingStrategyError)
-    ''' 
+    '''
     yield from generate_args_from_strategies(*map(lambda t: values(depth, t), types))
 
 class PairGen:
@@ -127,7 +123,7 @@ class PairGen:
 
         def __lt__(self, o):
             return all(map(lambda x, y: x < y, self.x, o.x))
-            
+
     # A priority queue
     # (x, y) < (a, b) => x < a AND y < b
     def __init__(self, n=2):
@@ -164,7 +160,7 @@ class PairGen:
 
         for i in range(self._n):
             v = t[i] + 1
-            tp = t[:i] + (v,) + t[i+1:]
+            tp = t[:i] + (v,) + t[i + 1:]
 
             if v > self.max_sizes[i]:
                 if i not in self.continuation:
@@ -183,7 +179,7 @@ def generate_args_from_strategies(*iters):
 Make sure it hits all lower values first
 i.e. 00 01 10 11 before 20 or 02 (1s before 2s)
     '''
-    gens = collections.deque(map(iter,iters))
+    gens = collections.deque(map(iter, iters))
     n = len(gens)
 
     values = [[] for _ in range(n)]
@@ -199,7 +195,7 @@ i.e. 00 01 10 11 before 20 or 02 (1s before 2s)
             if not pair_next:
                 pair_next = next(pair_gen)
 
-            log.debug('generate_args_from_strategies: \n values = {}\n t = {}'.format(values,pair_next))
+            log.debug('generate_args_from_strategies: \n values = {}\n t = {}'.format(values, pair_next))
 
             t = ()
             for i in range(n):
@@ -221,9 +217,9 @@ i.e. 00 01 10 11 before 20 or 02 (1s before 2s)
             continue
         except MissingStrategyError:
             v = MissingStrategyError
-            ds.append((di,d))
+            ds.append((di, d))
         else:
-            ds.append((di,d))
+            ds.append((di, d))
 
         pair_gen.update(di)
         d.append(v)
@@ -250,7 +246,7 @@ def get_strat_instance(t):
     return Strategy.get_strat_instance(t)
 
 def register(t, strategy, override=True):
-    '''Register a :class:`Strategy` instance for 
+    '''Register a :class:`Strategy` instance for
     type 't'
     '''
     if t in StratMeta.__strats__ and not override:
@@ -261,16 +257,16 @@ def register(t, strategy, override=True):
 class StratMeta(abc.ABCMeta):
     '''Metaclass for an strat generator
     handles setting up the LUT
-    ''' 
+    '''
     # global LUT of all strategies
-    __strats__ = {} 
+    __strats__ = {}
 
     # LUT for this current search
     _current_strategies = __strats__
-    
+
     def __init__(self, *args, **kwargs):
         pass
-    
+
     def __new__(mcls, name, bases, namespace, _subtype=None, autoregister=True):
         cls = super().__new__(mcls, name, bases, namespace)
 
@@ -304,9 +300,11 @@ class StratMeta(abc.ABCMeta):
         return self.new(sub)
 
     def new(self, t):
-        return self.__class__(self.__name__, (self,) + self.__bases__,
-                          dict(self.__dict__),
-                          _subtype=t)
+        return self.__class__(
+            self.__name__,
+            (self,) + self.__bases__,
+            dict(self.__dict__),
+            _subtype=t)
 
     def get_strat_instance(self, t):
         # see if we have an instance for t, outright
@@ -326,6 +324,7 @@ class StratMeta(abc.ABCMeta):
                 strat_origin = self.get_strat_instance(origin)
 
                 s = self.new(t)
+
                 def generate(self, d, *args):
                     strat_instance = strat_origin(d)
                     yield from strat_instance.generate(d, *(params + args))
@@ -340,9 +339,10 @@ class StratMeta(abc.ABCMeta):
                     tuple_params = t.__tuple_params__
                     if tuple_params is None:
                         raise MissingStrategyError
-                    tuple_use_ellipsis = t.__tuple_use_ellipsis__
+
                     strat_origin = self.get_strat_instance(typing.Tuple)
                     s = self.new(t)
+
                     def generate(self, d, *args):
                         strat_instance = strat_origin(d)
                         yield from strat_instance.generate(d, *(tuple_params + args))
@@ -367,16 +367,16 @@ class StrategyIterator:
     def __next__(self):
         if self.strategy._depth > 0:
             return next(self._generator)
-         
+
         raise StopIteration
 
     def __iter__(self):
         return self
-    
+
     def __repr__(self):
         return 'StrategyInstance({})'.format(repr(self.strategy))
 
-class Strategy(metaclass=StratMeta): 
+class Strategy(metaclass=StratMeta):
     '''A :class:`Strategy` is a method of generating values of some type
     in a deterministic, gradual way - building smaller values first
 
@@ -427,7 +427,7 @@ class Strategy(metaclass=StratMeta):
 def mapS(strat, register_type=None, autoregister=False, **kwargs):
     '''
     Maps some function over a Strategy _class_.
-    To automatically register the new strategy either set 
+    To automatically register the new strategy either set
         autoregister=True   overwrite the old strategy with this one
         register_type=t     register this strategy for type 't'
 
@@ -443,8 +443,6 @@ def mapS(strat, register_type=None, autoregister=False, **kwargs):
             def generate(self, depth, *args):
                 for v in strat.generate(self, depth, *args):
                     yield from f(depth, v, *args)
-
-        name = 'Mapped[{}]_{}'.format(f.__name__, strat.__name__)
 
         if register_type:
             register(register_type, MapStrat)
