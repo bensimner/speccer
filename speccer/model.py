@@ -8,7 +8,7 @@ from typing import List
 
 from . import spec
 from .strategy import Strategy, values, value_args, mapS
-from .error_types import MissingStrategyError
+from .error_types import MissingStrategyError, AssertionFailure
 
 __all__ = [
     'Model',
@@ -41,7 +41,7 @@ class Partials:
         self.values = None
 
     def validate(self):
-        with spec.enable_assertions_logging(False):
+        with spec.change_assertions_log(None):
             return self._validate()
 
     def _validate(self):
@@ -271,7 +271,7 @@ class ModelMeta(type):
         cls.__modelcommands__ = tuple(cmdlist)
 
         cls.Command = type('{}_Command'.format(cls), (), {})
-        cls.Commands = type('{}_Commands'.format(cls), (Partials,), {})
+        cls.Commands = type('{}_Commands'.format(cls.__qualname__), (Partials,), {})
 
         def validate(ps: cls.Commands) -> bool:
             '''Given a list of partials 'ps' return True if they're valid

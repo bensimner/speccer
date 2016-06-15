@@ -48,7 +48,7 @@ class StrStrat(Strategy[str]):
         yield from LETTERS[:m]
 
 # for debugging
-if False:
+if True:
     class SimpleIntStrat(IntStrat):
         def generate(self, depth):
             yield 0

@@ -1,12 +1,17 @@
+import sys
 import types
 import inspect
 import logging
+import functools
 import traceback
 import contextlib
-import collections
 
-from .error_types import *
-from .clauses import *
+from .error_types import AssertionFailure
+from .clauses import  \
+    Property, PropertyType, Success, Failure,  \
+    Counter, Witness, NoWitness, NoCounter, \
+    EmptySuccess, AssertionCounter
+from .pset import PropertySet
 from .import strategy
 from .import model
 
@@ -21,244 +26,147 @@ __all__ = [
     'assertIsNot',
     'assertIsInstance',
     'assertIsNotInstance',
-    'enable_assertions_logging',
-    'exists',
-    'forall',
+    'change_assertions_log',
 ]
 
 log = logging.getLogger('spec')
+AssertionsLogger = None
 
-# Result type for the result of running a property
-Result = collections.namedtuple('Result', ['outcome', 'source'])
+# Global vars that aid in pretty-printing
+Output = False
 
-def Failure(source):
-    return Result(False, source)
-
-def Success(source):
-    return Result(True, source)
-
-Assertions = []
-AssertionSource = None
-AssertionsLog = True
-
-N = 40
-LAYOUT = {
-    1: ['-' * 40, '=' * 40],
-    2: '-' * 40,
-}
+@contextlib.contextmanager
+def change_assertions_log(log=None):
+    global AssertionsLogger
+    old_log = AssertionsLogger
+    AssertionsLogger = log
+    yield
+    AssertionsLogger = old_log
 
 def _assert(p, succ_m=None, fail_m='_assert'):
     if not p:
         raise AssertionFailure(fail_m)
-    elif AssertionsLog:
+    elif AssertionsLogger is not None:
         if succ_m:
-            Assertions.append((AssertionSource, succ_m))
+            AssertionsLogger.append(succ_m)
         else:
-            Assertions.append((AssertionSource, '¬({})'.format(fail_m)))
+            AssertionsLogger.append('¬({})'.format(fail_m))
 
     return True
 
-@contextlib.contextmanager
-def enable_assertions_logging(enabled=True):
-    global AssertionsLog
-    log = AssertionsLog
-    AssertionsLog = enabled
-    yield
-    AssertionsLog = log
+@functools.lru_cache(32)
+def _find_ancestors(outcome):
+    parents = []
+    parent = outcome.prop.parent
+    while parent:
+        parents.append(parent)
+        parent = parent.parent
+    return parents
 
-def spec(depth, prop_or_prop_set, output=True):
-    '''Given some :class:`Property` 'prop'
-    test it against inputs to depth 'depth
-    and print any found counter example
+def _print_arg(counter):
+    for arg, value in counter.arguments.items():
+        if isinstance(value, model.Partials):
+            print(' {} ='.format(arg))
+            print('> {}'.format(value.pretty))
+        else:
+            print('  {}={}'.format(arg, value))
+
+def _print_reason(outcome):
+    if outcome.assertions:
+        print(' assertions:')
+
+        for a in outcome.assertions:
+            print(' > assert,    {}'.format(a))
+
+    if isinstance(outcome, AssertionCounter):
+        print(' reason: {}'.format(outcome.message))
+
+def _print_parents(outcome):
+    _parents = _find_ancestors(outcome)
+    for p in reversed(_parents):
+        print('{} ->'.format(clause_to_path(p)))
+        assertions, counter = p.partial
+        print(' with arguments:')
+        _print_arg(counter)
+
+        assertions, _ = p.partial
+        if assertions:
+            print(' assertions:')
+
+            for a in assertions:
+                print(' > assert,    {}'.format(a))
+
+        print('')
+
+def _print_success(prop, depth, success):
+    print('-' * 80)
+
+    name = prop.name
+    if isinstance(success, NoCounter):
+        print('Found no counterexample')
+        print('In property `{}`'.format(name))
+    elif isinstance(success, Witness):
+        print('Found witness')
+        print('In property `{}`'.format(name))
+
+        _print_parents(success)
+        print('{} ->'.format(clause_to_path(success.prop)))
+        print(' witness:')
+        _print_arg(success.reason)
+        _print_reason(success)
+
+    print('')
+    print('OK.')
+
+def _print_failure(prop, depth, failure):
+    print('=' * 80)
+    print('Failure in', clause_to_path(failure.prop))
+    print('')
+    _print_parents(failure)
+    print('{} ->'.format(clause_to_path(failure.prop)))
+    if isinstance(failure, Counter):
+        print(' counterexample:')
+        _print_arg(failure.reason)
+        _print_reason(failure)
+
+    print('')
+    print('FAIL.')
+
+def _pretty_print(prop, depth, outcome):
+    if isinstance(outcome, Success):
+        _print_success(prop, depth, outcome)
+    else:
+        _print_failure(prop, depth, outcome)
+
+def spec(depth, prop, output=True, outfile=sys.stdout):
+    '''Run `speccer` on given :class:`Property` 'prop'
+    to depth 'depth'
+
+    if output=True then print to 'outfile', otherwise just return boolean
+    result
+
+    if 'prop' is not a :class:`Property` but rather a function, it will be called
+    and metadata transfered
+
+    def f():
+        return forall(int, lambda i: i == 1)
+
+    # both of these are valid
+    > spec(3, f)
+    > spec(3, f())
     '''
-    def _go(prop):
-        if isinstance(prop, types.FunctionType):
-            f = prop
-            prop = prop()
-            prop.name = f.__name__
 
-        if not output:
-            return run_clause(depth, prop)
+    if isinstance(prop, types.FunctionType):
+        f = prop
+        prop = prop()
+        prop.name = f.__name__
 
-        t, *args = prop
-        if t == PropertyType.FORALL:
-            return handle_forall(depth, prop, simple_header=True)
-        elif t == PropertyType.EXISTS:
-            return handle_exists(depth, prop, simple_header=True)
-        elif t == PropertyType.EMPTY:
-            return handle_empty(prop, simple_header=True)
+    outcome = run_clause(depth, prop)
+    if output:
+        with contextlib.redirect_stdout(outfile):
+            _pretty_print(prop, depth, outcome)
 
-    def _next(prop):
-        res = _go(prop)
-        if res.outcome:
-            if res.source.type == PropertyType.EXISTS:
-                print(LAYOUT[1][1])
-                print()
-        else:
-            return False
-        return True
-
-    try:
-        prop_or_prop_set = iter(prop_or_prop_set)
-    except:
-        return _go(prop_or_prop_set)
-    else:
-        print('')
-        for prop in prop_or_prop_set:
-            if not _next(prop):
-                break
-        else:
-            print('')
-            print('(OK)')
-
-def handle_empty(prop, simple_header=False):
-    if 0 in LAYOUT and not simple_header:
-        print(LAYOUT[0])
-        print('')
-
-    if simple_header:
-        print('-- Property: `{p}`'.format(p=str(prop)))
-
-    print(LAYOUT[1][0])
-    print('<empty>')
-
-    if not simple_header:
-        print('')
-        print('OK.')
-
-    return Success(prop)
-
-def handle_exists(depth, prop, simple_header=False):
-    '''A Manual run_exists with output
-    '''
-
-    n = 0
-    dots = 1
-    n_dots = 0
-    if not simple_header:
-        if 0 in LAYOUT:
-            print(LAYOUT[0])
-    else:
-        print('-- Property: `{p}`'.format(p=str(prop)))
-
-    _, (gen_types, f) = prop
-    for result in _run_prop(depth, prop, gen_types, f):
-        n += 1
-        if result.outcome:
-            print('*')
-            if not simple_header:
-                print(LAYOUT[1][0])
-
-                if strategy.FAILED_IMPLICATION:
-                    print('Found witness after {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
-                else:
-                    print('Found witness after {n} call(s)'.format(n=n))
-
-                print('In Property `{p}`'.format(p=str(prop)))
-
-            print(LAYOUT[2])
-            print('Found Witness:')
-            print_result(result)
-            if not simple_header:
-                print('')
-                print('OK.')
-            return Success(prop)
-        else: 
-            if n % dots == 0:
-                print('.', flush=True, end='')
-                n_dots += 1
-            
-                if n_dots % N == 0:
-                    print('')
-                    dots *= 10
-
-
-    print('E')
-    print(LAYOUT[1][1])
-
-    if not simple_header:
-        if strategy.FAILED_IMPLICATION:
-            print('Ran to {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
-        else:
-            print('Ran to {n} call(s)'.format(n=n))
-        print('Found no witness to depth {d}'.format(d=depth))
-        print('{n}/{n}'.format(n=n))
-        print('')
-        print('FAIL.')
-    else:
-        print('')
-        print('({n} test cases)'.format(n=n))
-
-    return Failure(prop)
-
-def handle_forall(depth, prop, simple_header=False):
-    '''A Manual run_forall
-    '''
-    n = 0
-    dots = 1
-    n_dots = 0
-
-    if not simple_header:
-        if 0 in LAYOUT:
-            print(LAYOUT[0])
-    else:
-        print('-- Property: `{p}`'.format(p=str(prop)))
-
-    _, (gen_types, f) = prop
-    for result in _run_prop(depth, prop, gen_types, f):
-        n += 1
-        if not result.outcome:
-            print('E')
-            print(LAYOUT[1][1])
-
-            if strategy.FAILED_IMPLICATION:
-                print('Failure after {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
-            else:
-                print('Failure after {n} call(s)'.format(n=n))
-
-            if not simple_header:
-                print('In Property `{p}`'.format(p=str(prop)))
-
-            if not simple_header:
-                print(LAYOUT[2])
-            else:
-                print('')
-
-            print('Found Counterexample:')
-            print_result(result)
-
-            if not simple_header:
-                print('')
-                print('FAIL.')
-            else:
-                print('')
-                print('(FAIL)')
-            return Failure(prop)
-
-        if n % dots == 0:
-            print('.', flush=True, end='')
-            n_dots += 1
-
-            if n_dots % N == 0:
-                print('')
-                dots *= 10
-
-    if not simple_header:
-        print('')
-        print(LAYOUT[1][0])
-        if strategy.FAILED_IMPLICATION:
-            print('Ran to {n} call(s) ({} did not meet implication)'.format(strategy.FAILED_IMPLICATION, n=n))
-        else:
-            print('Ran to {n} call(s)'.format(n=n))
-        print('Found no counterexample to depth {d}'.format(d=depth))
-        print('{n}/{n}'.format(n=n))
-        print('')
-        print('OK.')
-    else:
-        print('')
-        print('({n} test cases)'.format(n=n))
-
-    return Success(prop)
+    return True if isinstance(outcome, Success) else False
 
 def print_result(result):
     '''PrettyPrints the witness/counterexample and source to the screen
@@ -330,20 +238,18 @@ def clause_to_path(clause):
     location = ''
     p = clause
     while p is not None:
-        name = p.name
         type_name = p[0].name
         types = p[1][0]
-        if p.name is not None:
-            name = '{}::{}({})'.format(name, p[0].name, ', '.join(map(pretty_type, types)))
-            if not location:
-                location = name
-            else:
-                location = '{}:{}'.format(name, location)
+        name = '{}({})'.format(type_name, ', '.join(map(pretty_type, types)))
+
+        if not location:
+            location = name
         else:
-            if location:
-                location = '{}({}):{}'.format(type_name, ', '.join(map(pretty_type, types)), location)
-            else:
-                location = '{}({})'.format(type_name, ', '.join(map(pretty_type, types)))
+            location = '{}::{}'.format(name, location)
+
+        if not p.parent:
+            location = '{}.{}'.format(p.name, location)
+
         p = p.parent
     return location
 
@@ -357,11 +263,11 @@ def run_clause(depth, clause):
     elif t == PropertyType.EXISTS:
         return run_exists(depth, clause)
     elif t == PropertyType.EMPTY:
-        return Success('<empty>', clause)
+        return EmptySuccess(clause)
     else:
         raise ValueError('Unknown Clause `{}`'.format(clause))
 
-def run_forall(depth, clause):
+def __run_forall(depth, clause):
     '''Given a forall, run it
     and yield the results
     '''
@@ -372,7 +278,14 @@ def run_forall(depth, clause):
 
     return Success('forall-true', clause)
 
-def run_exists(depth, clause):
+def run_forall(depth, clause):
+    _, [gen_types, f] = clause
+    for result in _run_prop(depth, clause, gen_types, f):
+        if isinstance(result, Failure):
+            return result
+    return NoCounter(clause, assertions)
+
+def __run_exists(depth, clause):
     _, (gen_types, f) = clause
     for result in _run_prop(depth, clause, gen_types, f):
         _, *res = result
@@ -382,6 +295,13 @@ def run_exists(depth, clause):
     clause.reason = 'no {} exists that satisfies `{}`'.format(gen_types, clause_to_path(clause))
     clause.counter = None
     return Failure(clause)
+
+def run_exists(depth, clause):
+    _, (gen_types, f) = clause
+    for result in _run_prop(depth, clause, gen_types, f):
+        if isinstance(result, Success):
+            return result
+    return NoWitness(clause)
 
 def _get_args(depth, prop, types, f):
     strats = []
@@ -393,46 +313,40 @@ def _get_args(depth, prop, types, f):
     yield from strategy.generate_args_from_strategies(*strats)
 
 def _run_prop(depth, prop, types, f):
-    global Assertions, AssertionSource
+    '''Given some Property function `f` from Property `prop`
+    parametrized over `types` then run `f` on all tuples of type Tuple[*types]
+    '''
+
     args = _get_args(depth, prop, types, f)
     s = inspect.signature(f)
     while True:
         try:
             argt = next(args)
-            bind_argt = s.bind(*argt) 
-            prop.counter = bind_argt
+            bind_argt = s.bind(*argt)
+            counter = bind_argt
         except AssertionFailure as e:
             # Rethink the way THIS works?
             counter = s.bind(e._info['value'])
-            reason = '{{{}}}: {}'.format(e._info['src'], e._msg)
-            prop.counter = counter
-            prop.reason = reason
-            yield Failure(prop)
+            yield Counter(prop, counter)
         except StopIteration:
             break
-        
-        try:
-            Assertions = []
-            AssertionSource = prop
 
-            v = f(*argt)
+        log = []
+        prop.partial = (log, counter)
+
+        try:
+            with change_assertions_log(log):
+                v = f(*argt)
+
             if not v:
-                prop.reason = '{} property returned `False`'.format(clause_to_path(prop))
-                yield Failure(prop)
-                continue
+                yield Counter(prop, counter, assertions=log)
             elif isinstance(v, Property):
                 v.parent = prop
                 yield run_clause(depth, v)
-                continue
         except AssertionFailure as e:
-            prop.reason = e._msg
-            yield Failure(prop)
-        except Exception as e:
-            prop.reason = e
-            yield Failure(prop)
+            yield AssertionCounter(prop, counter, e._msg, assertions=log)
         else:
-            prop.reason = '`{}` returned true'.format(prop)
-            yield Success(prop)
+            yield Witness(prop, counter, assertions=log)
 
 
 # UnitTest style assertions
@@ -459,7 +373,7 @@ def assertIs(a, b, fmt='{a} is {b}', fmt_fail='{a} is not {b}'):
     return _assert(a is b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
 
 def assertNotEqual(a, b, fmt='{a} != {b}', fmt_fail='{a} == {b}'):
-    return _assert(a != b, '{} != {}'.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+    return _assert(a != b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
 
 def assertIsNot(a, b, fmt='{a} is not {b}', fmt_fail='{a} is {b}'):
     return _assert(a is not b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
