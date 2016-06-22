@@ -13,6 +13,7 @@ from .clauses import  \
 from .import strategy
 from .import model
 from .import utils
+from .import pset
 
 __all__ = [
     'spec',
@@ -117,12 +118,11 @@ def _print_success(prop, depth, success):
         _print_reason(success)
 
     print('')
-    print('OK.')
+    print('OK')
 
 def _print_failure(prop, depth, failure):
     print('=' * 80)
     print('Failure in', clause_to_path(failure.prop))
-    print('')
     _print_parents(failure)
     print('{} ->'.format(clause_to_path(failure.prop)))
     if isinstance(failure, Counter):
@@ -131,7 +131,7 @@ def _print_failure(prop, depth, failure):
         _print_reason(failure)
 
     print('')
-    print('FAIL.')
+    print('FAIL')
 
 def _pretty_print(prop, depth, outcome):
     if isinstance(outcome, Success):
@@ -139,7 +139,7 @@ def _pretty_print(prop, depth, outcome):
     else:
         _print_failure(prop, depth, outcome)
 
-def spec(depth, prop, output=True, outfile=sys.stdout):
+def spec(depth, prop_or_prop_set, output=True, args=(), outfile=sys.stdout):
     '''Run `speccer` on given :class:`Property` 'prop'
     to depth 'depth'
 
@@ -157,15 +157,56 @@ def spec(depth, prop, output=True, outfile=sys.stdout):
     > spec(3, f())
     '''
 
-    if isinstance(prop, types.FunctionType):
-        f = prop
-        prop = prop()
-        prop.name = f.__name__
+    with contextlib.redirect_stdout(outfile if output else None):
+        return _spec(depth, prop_or_prop_set, args=args)
 
-    outcome = run_clause(depth, prop)
-    if output:
-        with contextlib.redirect_stdout(outfile):
-            _pretty_print(prop, depth, outcome)
+def _spec(depth, prop_or_prop_set, args=()):
+    if isinstance(prop_or_prop_set, types.FunctionType):
+        f = prop_or_prop_set
+        prop_or_prop_set = prop_or_prop_set(*args)
+        prop_or_prop_set.name = f.__name__
+
+    if isinstance(prop_or_prop_set, pset.PropertySet):
+        prop_or_prop_set.depth = depth
+
+    if isinstance(prop_or_prop_set, Property):
+        return _spec_prop(depth, prop_or_prop_set)
+    else:
+        try:
+            props = iter(prop_or_prop_set)
+
+            for p in props:
+                out = _spec(depth, p, args=args)
+                if isinstance(out, Failure):
+                    return out
+
+                print('~' * 80)
+        except TypeError:
+            raise
+    return EmptySuccess(None, None)  # TODO: Better output for propsets?
+
+def _spec_prop(depth, prop):
+    outs = run_clause(depth, prop)
+    n = 0
+    try:
+        while True:
+            next(outs)
+
+            print('.', flush=True, end='')
+            n += 1
+            if n % 80 == 0:
+                print('')
+    except StopIteration as e:
+        outcome = e.value
+
+        if isinstance(outcome, UnrelatedException):
+            print('E')
+        elif isinstance(outcome, Failure):
+            print('F')
+        else:
+            print('.')
+
+        _pretty_print(prop, depth, outcome)
 
     return outcome
 
@@ -196,9 +237,9 @@ def run_clause(depth, clause):
     '''
     t, *args = clause
     if t == PropertyType.FORALL:
-        return run_forall(depth, clause)
+        return (yield from run_forall(depth, clause))
     elif t == PropertyType.EXISTS:
-        return run_exists(depth, clause)
+        return (yield from run_exists(depth, clause))
     elif t == PropertyType.EMPTY:
         return EmptySuccess(clause)
     else:
@@ -209,6 +250,7 @@ def run_forall(depth, clause):
     for result in _run_prop(depth, clause, gen_types, f):
         if isinstance(result, Failure):
             return result
+        yield
     return NoCounter(clause, result.assertions)
 
 def run_exists(depth, clause):
@@ -216,14 +258,14 @@ def run_exists(depth, clause):
     for result in _run_prop(depth, clause, gen_types, f):
         if isinstance(result, Success):
             return result
+        yield
     return NoWitness(clause)
 
 def _get_args(depth, prop, types, f):
     strats = []
-    with strategy.change_strategies(prop.strategies):
-        for t in types:
-            strat = strategy.get_strat_instance(t)
-            strats.append(strat(depth))
+    for t in types:
+        strat = strategy.get_strat_instance(t)
+        strats.append(strat(depth))
 
     yield from strategy.generate_args_from_strategies(*strats)
 
@@ -258,11 +300,16 @@ def _run_test(counter, depth, prop, f):
             return Counter(prop, counter, assertions=log)
         elif isinstance(v, Property):
             v.parent = prop
-            return run_clause(depth, v)
+            c = run_clause(depth, v)
+            try:
+                while True:
+                    next(c)
+            except StopIteration as e:
+                return e.value
     except AssertionError as e:
         return AssertionCounter(prop, counter, e.args[0], assertions=log)
     except Exception as e:
-        return UnrelatedException(e)
+        return UnrelatedException(prop, e)
     else:
         return Witness(prop, counter, assertions=log)
 

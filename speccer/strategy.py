@@ -24,7 +24,6 @@ __all__ = [
     'has_strat_instance',
     'get_strat_instance',
     'mapS',
-    'change_strategies',
     'implies',
 ]
 
@@ -54,26 +53,6 @@ def implies(f, t: type):
 
 def values(depth, t):
     yield from Strategy.get_strat_instance(t)(depth)
-
-@contextlib.contextmanager
-def change_strategies(strategies):
-    c_strats = StratMeta._current_strategies.copy()
-    c_strats.update(strategies)
-
-    set_strategies(c_strats)
-    yield
-    reset_strategies()
-
-
-def set_strategies(strategies):
-    '''Set the current LUT of strategies to something
-    '''
-    StratMeta._current_strategies = strategies
-
-def reset_strategies():
-    '''Reset the current LUT of strategies back to default
-    '''
-    StratMeta._current_strategies = StratMeta.__strats__
 
 def value_args(depth, *types):
     '''Creates a `Strategy' which generates all tuples of type *types
@@ -251,9 +230,6 @@ class StratMeta(abc.ABCMeta):
     # global LUT of all strategies
     __strats__ = {}
 
-    # LUT for this current search
-    _current_strategies = __strats__
-
     def __init__(self, *args, **kwargs):
         pass
 
@@ -299,7 +275,7 @@ class StratMeta(abc.ABCMeta):
     def get_strat_instance(self, t):
         # see if we have an instance for t, outright
         try:
-            return StratMeta._current_strategies[t]
+            return StratMeta.__strats__[t]
         except KeyError:
             # for typing.Generic instances
             # try break up t into its origin and paramters
@@ -322,7 +298,7 @@ class StratMeta(abc.ABCMeta):
                 name = 'Generated_{}[{}]'.format(strat_origin.__name__, tuple(map(lambda p: p.__name__, params)))
                 GenStrat = type(name, (s,), dict(generate=generate))
                 GenStrat.__module__ = strat_origin.__module__
-                StratMeta._current_strategies[s] = GenStrat
+                StratMeta.__strats__[s] = GenStrat
                 return GenStrat
             except AttributeError:
                 try:
@@ -340,7 +316,7 @@ class StratMeta(abc.ABCMeta):
                     name = 'GeneratedTuple_[{}]'.format(tuple(map(lambda p: p.__name__, tuple_params)))
                     GenStrat = type(name, (s,), dict(generate=generate))
                     GenStrat.__module__ = strat_origin.__module__
-                    StratMeta._current_strategies[s] = GenStrat
+                    StratMeta.__strats__[s] = GenStrat
                     return GenStrat
                 except AttributeError:
                     raise MissingStrategyError('Cannot get Strategy instance for ~{}, not a typing.Generic instance'.format(t))

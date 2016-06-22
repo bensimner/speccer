@@ -11,6 +11,10 @@ import logging
 from .strategy import Strategy
 from . import strategy
 
+__all__ = [
+    'Nat',
+]
+
 LETTERS = string.ascii_lowercase
 log = logging.getLogger('default_strategies')
 
@@ -48,7 +52,7 @@ class StrStrat(Strategy[str]):
         yield from LETTERS[:m]
 
 # for debugging
-if True:
+if False:
     class SimpleIntStrat(IntStrat):
         def generate(self, depth):
             yield 0

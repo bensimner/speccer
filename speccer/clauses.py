@@ -122,7 +122,6 @@ class Property(tuple):
         return _tuple.__new__(cls, (type, args))
 
     def __init__(self, type, args, name=None):
-        self.strategies = {}
         self.name = name or _get_name(i=1)
         self.type = type
         # each Property clause can have a parent clause

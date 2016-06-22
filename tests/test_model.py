@@ -1,4 +1,3 @@
-import unittest
 from speccer import *
 from speccer.model import NamedPartial, NameArg
 
@@ -33,11 +32,11 @@ def contains_valid_names(cmds):
 
     return True
 
-def prop_test_model_names():
-    return forall(
-        TestModel.Commands,
-        lambda cmds: contains_valid_names(cmds))
-
-class TC(unittest.TestCase):
-    def test_prop_test_model_names(self):
-        self.assertIsInstance(spec(6, prop_test_model_names, output=False), Success)
+@unittest_wrapper(depth=3)
+class PSet(PropertySet):
+    def prop_test_model_names(self):
+        '''All NameArg's exist as a command
+        '''
+        return forall(
+            TestModel.Commands,
+            lambda cmds: contains_valid_names(cmds))

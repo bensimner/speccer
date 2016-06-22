@@ -3,12 +3,13 @@ from .model import *
 from .strategy import *
 from .spec import *
 from .clauses import *
+from .pset import *
 
 import logging.config
 
 def enableLogging(debug=False):
     logging.config.dictConfig({
-        'version': 1, 
+        'version': 1,
         'disable_existing_loggers': False,
         'formatters': {
             'default': {
