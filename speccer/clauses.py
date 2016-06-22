@@ -69,6 +69,15 @@ class Failure(Outcome):
 class NoWitness(Failure):
     pass
 
+class UnrelatedException(Failure):
+    def __init__(self, prop, exception, assertions=None):
+        super().__init__(prop, assertions)
+        self._e = exception
+
+    @property
+    def reason(self):
+        return self._e
+
 class Counter(Failure):
     def __init__(self, prop, counter, assertions=None):
         super().__init__(prop, assertions)
@@ -87,7 +96,6 @@ class AssertionCounter(Counter):
     @property
     def message(self):
         return self._msg
-
 
 class NoCounter(Success):
     pass

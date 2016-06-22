@@ -1,8 +1,6 @@
 class MissingStrategyError(Exception):
     pass
 
-class AssertionFailure(Exception):
-    def __init__(self, msg):
-        self._msg = msg
-        self._info = {}
-
+class InvalidPartials(AssertionError):
+    def __init__(self, s, e):
+        super().__init__('{{{}}}: {}'.format(s, e))

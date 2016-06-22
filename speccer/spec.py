@@ -6,14 +6,13 @@ import functools
 import traceback
 import contextlib
 
-from .error_types import AssertionFailure
 from .clauses import  \
     Property, PropertyType, Success, Failure,  \
     Counter, Witness, NoWitness, NoCounter, \
-    EmptySuccess, AssertionCounter
-from .pset import PropertySet
+    EmptySuccess, AssertionCounter, UnrelatedException
 from .import strategy
 from .import model
+from .import utils
 
 __all__ = [
     'spec',
@@ -26,6 +25,7 @@ __all__ = [
     'assertIsNot',
     'assertIsInstance',
     'assertIsNotInstance',
+    'assertIn',
     'change_assertions_log',
 ]
 
@@ -45,7 +45,7 @@ def change_assertions_log(log=None):
 
 def _assert(p, succ_m=None, fail_m='_assert'):
     if not p:
-        raise AssertionFailure(fail_m)
+        raise AssertionError(fail_m)
     elif AssertionsLogger is not None:
         if succ_m:
             AssertionsLogger.append(succ_m)
@@ -79,7 +79,8 @@ def _print_reason(outcome):
             print(' > assert,    {}'.format(a))
 
     if isinstance(outcome, AssertionCounter):
-        print(' reason: {}'.format(outcome.message))
+        print('')
+        print('reason: {}'.format(outcome.message))
 
 def _print_parents(outcome):
     _parents = _find_ancestors(outcome)
@@ -166,71 +167,7 @@ def spec(depth, prop, output=True, outfile=sys.stdout):
         with contextlib.redirect_stdout(outfile):
             _pretty_print(prop, depth, outcome)
 
-    return True if isinstance(outcome, Success) else False
-
-def print_result(result):
-    '''PrettyPrints the witness/counterexample and source to the screen
-    '''
-    src = result.source
-    parents = []
-
-    p = src
-    while p:
-        parents.append(p)
-        p = p.parent
-
-    while parents:
-        p = parents.pop()
-        counter = p.counter
-
-        # counter instance of BoundArguments
-        if counter is not None:
-            print('{} ->'.format(clause_to_path(p)))
-            for arg_name, v in counter.arguments.items():
-                if isinstance(v, model.Partials):
-                    print(' {} ='.format(arg_name))
-                    print('> {}'.format(v.pretty))
-                else:
-                    print(' {}={}'.format(arg_name, str(v)))
-
-            print('')
-
-    print('Reason:')
-    for ass_src, r in Assertions:
-        if ass_src:
-            print('> {}, assert\t{}'.format(clause_to_path(ass_src), r))
-        else:
-            print('> assert\t{}'.format(r))
-
-    if len(Assertions) > 0:
-        print()
-
-    if isinstance(src.reason, Exception):
-        print('> EXCEPTION:')
-        e = src.reason
-        etype = type(e)
-        traceback.print_exception(etype, e, e.__traceback__)
-    else:
-        print(' {}'.format(src.reason))
-
-def pretty_type(t):
-    '''Pretty string of some type
-    '''
-    try:
-        # typing.GenericMeta
-        return '{}[{}]'.format(t.__name__, ', '.join(map(pretty_type, t.__parameters__)))
-    except AttributeError:
-        try:
-            # typing.TupleMeta
-            if t.__tuple_use_ellipsis__:
-                return '{}[{}, ...]'.format(t.__name__, ', '.join(map(pretty_type, t.__tuple_parameters__)))
-            else:
-                return '{}[{}]'.format(t.__name__, ', '.join(map(pretty_type, t.__tuple_parameters__)))
-        except AttributeError:
-            try:
-                return t.__name__
-            except AttributeError:
-                return str(t)
+    return outcome
 
 def clause_to_path(clause):
     '''Convert a Property clause to a prettyified string
@@ -240,7 +177,7 @@ def clause_to_path(clause):
     while p is not None:
         type_name = p[0].name
         types = p[1][0]
-        name = '{}({})'.format(type_name, ', '.join(map(pretty_type, types)))
+        name = '{}({})'.format(type_name, ', '.join(map(utils.pretty_type, types)))
 
         if not location:
             location = name
@@ -267,34 +204,12 @@ def run_clause(depth, clause):
     else:
         raise ValueError('Unknown Clause `{}`'.format(clause))
 
-def __run_forall(depth, clause):
-    '''Given a forall, run it
-    and yield the results
-    '''
-    _, (gen_types, f) = clause
-    for result in _run_prop(depth, clause, gen_types, f):
-        if not result.outcome:
-            return result
-
-    return Success('forall-true', clause)
-
 def run_forall(depth, clause):
     _, [gen_types, f] = clause
     for result in _run_prop(depth, clause, gen_types, f):
         if isinstance(result, Failure):
             return result
-    return NoCounter(clause, assertions)
-
-def __run_exists(depth, clause):
-    _, (gen_types, f) = clause
-    for result in _run_prop(depth, clause, gen_types, f):
-        _, *res = result
-        if result.outcome:
-            return result
-
-    clause.reason = 'no {} exists that satisfies `{}`'.format(gen_types, clause_to_path(clause))
-    clause.counter = None
-    return Failure(clause)
+    return NoCounter(clause, result.assertions)
 
 def run_exists(depth, clause):
     _, (gen_types, f) = clause
@@ -312,42 +227,51 @@ def _get_args(depth, prop, types, f):
 
     yield from strategy.generate_args_from_strategies(*strats)
 
-def _run_prop(depth, prop, types, f):
-    '''Given some Property function `f` from Property `prop`
-    parametrized over `types` then run `f` on all tuples of type Tuple[*types]
-    '''
-
+def _bindings(depth, prop, types, f):
     args = _get_args(depth, prop, types, f)
     s = inspect.signature(f)
     while True:
         try:
             argt = next(args)
-            bind_argt = s.bind(*argt)
-            counter = bind_argt
-        except AssertionFailure as e:
-            # Rethink the way THIS works?
-            counter = s.bind(e._info['value'])
-            yield Counter(prop, counter)
         except StopIteration:
             break
-
-        log = []
-        prop.partial = (log, counter)
-
-        try:
-            with change_assertions_log(log):
-                v = f(*argt)
-
-            if not v:
-                yield Counter(prop, counter, assertions=log)
-            elif isinstance(v, Property):
-                v.parent = prop
-                yield run_clause(depth, v)
-        except AssertionFailure as e:
-            yield AssertionCounter(prop, counter, e._msg, assertions=log)
+        except AssertionError:
+            print('[_bindings] AssertionError on next(args) (assumed. ImplicationFailure)')
+            continue
         else:
-            yield Witness(prop, counter, assertions=log)
+            bind_argt = s.bind(*argt)
+            counter = bind_argt
+            yield counter
 
+def _run_test(counter, depth, prop, f):
+    log = []
+    prop.partial = (log, counter)
+
+    if not counter:
+        return Failure(prop)
+
+    try:
+        with change_assertions_log(log):
+            v = f(*counter.args, **counter.kwargs)
+
+        if not v:
+            return Counter(prop, counter, assertions=log)
+        elif isinstance(v, Property):
+            v.parent = prop
+            return run_clause(depth, v)
+    except AssertionError as e:
+        return AssertionCounter(prop, counter, e.args[0], assertions=log)
+    except Exception as e:
+        return UnrelatedException(e)
+    else:
+        return Witness(prop, counter, assertions=log)
+
+def _run_prop(depth, prop, types, f):
+    '''Given some Property function `f` from Property `prop`
+    parametrized over `types` then run `f` on all tuples of type Tuple[*types]
+    '''
+    for counter in _bindings(depth, prop, types, f):
+        yield _run_test(counter, depth, prop, f)
 
 # UnitTest style assertions
 def assertThat(f, *args, fmt='{name}({argv})', fmt_fail='{name}({argv}) is false'):
@@ -383,3 +307,6 @@ def assertIsNotInstance(a, b, fmt='not isinstance({a}, {b})', fmt_fail='isinstan
 
 def assertIsInstance(a, b, fmt='isinstance({a}, {b})', fmt_fail='not isinstance({a}, {b})'):
     return _assert(isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+
+def assertIn(a, b, fmt='{a} in {b}', fmt_fail='{a} not in {b}'):
+    return _assert(a in b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))

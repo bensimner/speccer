@@ -1,14 +1,16 @@
-# Models.py - Definition of a Model
+# model.py - Definition of a Model
 # author: Ben Simner
 
+import abc
 import logging
 import inspect
 import collections
 from typing import List
+from pprint import pprint
 
 from . import spec
 from .strategy import Strategy, values, value_args, mapS
-from .error_types import MissingStrategyError, AssertionFailure
+from .error_types import MissingStrategyError, InvalidPartials
 
 __all__ = [
     'Model',
@@ -27,40 +29,39 @@ def empty_state(self, args, v):
 def empty_ctor():
     return 0
 
-Partial = collections.namedtuple('Partial', ['command', 'args', 'var'])
-'''A Partially applied :class:`Command`
-
-It contains the actual :class:`Command` 'command', an iterable of :class:`PartialArg`
-arguments and string variable name 'var'
-'''
-
 class Partials:
-    def __init__(self, model, partials=[]):
-        self._partials = partials
+    def __init__(self, model, partials=None):
+        self._partials = partials or []
         self.model = model
+
+        self.environment = None
         self.values = None
 
-    def validate(self):
-        with spec.change_assertions_log(None):
-            return self._validate()
+    def validate_pre(self):
+        return self.validate(only_check_pre=True)
 
-    def _validate(self):
+    def validate(self, only_check_pre=False):
+        with spec.change_assertions_log(None):
+            return self._validate_partials(only_check_pre=only_check_pre)
+
+    def _unwrap_args(self, args):
+        for a in args:
+            if isinstance(a, NameArg):
+                yield self.environment[a.value]
+            else:
+                yield a.value
+
+    def _validate_partials(self, only_check_pre=False):
         '''Check that the cmds type check
         '''
-        log.debug('* validate{{{}}}'.format(pretty_partials(self, sep=';', return_annotation=False)))
+        log.debug('* validate{{{}}}'.format(self))
         self.model.reset_state()
         self.values = []
-
-        def unwrap_args(args):
-            for a in args:
-                if isinstance(a.value, ModelMeta.replacement_t):
-                    yield self.values[a.value.n]
-                else:
-                    yield a.value
+        self.environment = {}
 
         for partial in self._partials:
             cmd = partial.command
-            args = tuple(unwrap_args(partial.args))
+            args = tuple(self._unwrap_args(partial.bindings.values()))
             log.debug('validate({} : {})'.format(cmd, args))
 
             try:
@@ -68,27 +69,32 @@ class Partials:
                 if cmd.fpre(self.model, args) is False:
                     log.debug('*** FAIL: Pre-condition False')
                     return False
-            except AssertionFailure as e:
-                log.debug('*** FAIL: Pre-condition AssertionFailure')
+            except AssertionError as e:
+                log.debug('*** FAIL: Pre-condition AssertionError')
                 log.debug('*** {}'.format(e))
-                return False
+                name = '{}_pre'.format(cmd.name)
+                raise InvalidPartials(name, e) from e
 
             try:
                 v = cmd.fdo(*args)  # maybe add `self.model' ?
-            except AssertionFailure as e:
-                e._info['src'] = '{}_execute'.format(cmd.name)
-                raise
+            except AssertionError as e:
+                name = '{}_execute'.format(cmd.name)
+                raise InvalidPartials(name, e) from e
+
+            if isinstance(partial, NamedPartial):
+                self.environment[partial.name] = v
 
             self.values.append(v)
 
-            try:
-                # as with pre-condition can just `pass`
-                if cmd.fpost(self.model, args, v) is False:
-                    log.debug('*** FAIL: Post-condition False')
-                    return False
-            except AssertionFailure as e:
-                e._info['src'] = '{}_postcondition'.format(cmd.name)
-                raise
+            if not only_check_pre:
+                try:
+                    # as with pre-condition can just `pass`
+                    if cmd.fpost(self.model, args, v) is False:
+                        log.debug('*** FAIL: Post-condition False')
+                        return False
+                except AssertionError as e:
+                    name = '{}_postcondition'.format(cmd.name)
+                    raise InvalidPartials(name, e) from e
 
             # if passes post-condition, advance to next state
             self.model.state = cmd.fnext(self.model, args, v)
@@ -99,33 +105,31 @@ class Partials:
     def __getitem__(self, i):
         return self._partials[i]
 
-    def __repr__(self):
+    def __str__(self):
         if self._partials == []:
             return '<empty>'
-        return pretty_partials(self, return_annotation=False, sep=';')
+        return ';'.join(list(map(str, self._partials)))
+
+    def __repr__(self):
+        name = self.__class__.__qualname__
+        args = [repr(self.model), repr(self._partials)]
+        argstr = ', '.join(args)
+        return '%s(%s)' % (name, argstr)
 
     @property
     def pretty(self):
         if self._partials == []:
             return '<empty>'
 
-        return pretty_partials(self, values=self.values, sep='\n> ', return_annotation=False)
+        return '\n> '.join(list(map(str, self._partials)))
+
+    def pprint_code_list(self):
+        pprint(self._partials)
 
     def __iter__(self):
         return iter(self._partials)
 
-PartialArg = collections.namedtuple('PartialArg', ['value', 'name', 'annotation'])
-'''A Partially applied argument
-here, name can be None meaning it is just a literal
-'''
-
 log = logging.getLogger('model')
-
-def PartialArg_str(self):
-    if self.name:
-        return self.name
-    return repr(self.value)
-PartialArg.__str__ = PartialArg_str
 
 VAR_LENGTH = 3
 VAR_NAMES = list(values(VAR_LENGTH, str))
@@ -194,7 +198,11 @@ class Command:
         self.fpre = fpre
         self.fpost = fpost
         self.fnext = fnext
-        self.name = fname or fdo.__code__.co_name
+
+        try:
+            self.name = fname or fdo.__qualname__
+        except AttributeError:
+            self.name = fdo.__code__.co_name
 
     def pre(self, f):
         '''Precondition for this :class:`Command`
@@ -231,6 +239,17 @@ class Command:
         for p in self.parameters.values():
             yield p.annotation
 
+    def __call__(self, *args, **kwargs):
+        '''
+        Call a `Command` object to give values to the arguments
+        '''
+        sig = self.signature
+        binding = sig.bind(*args, **kwargs)
+        bindings = collections.OrderedDict()
+        for k, v in binding.arguments.items():
+            bindings[k] = ValueArg(v)
+        return Partial(self, bindings)
+
     def __get__(self, obj, objtype=None):
         '''Getting a Command is looking up its `fdo` function
         '''
@@ -239,7 +258,104 @@ class Command:
         return self.fdo
 
     def __repr__(self):
-        return 'Command(fname={})'.format(self.name)
+        return self.name
+
+class Partial:
+    '''A Partially applied :class:`Command`
+    '''
+
+    def __init__(self, command, bindings):
+        self.command = command
+        self.bindings = bindings
+
+    def __str__(self):
+        name = self.command.name
+        args = []
+        for _name, _val in self.bindings.items():
+            args.append('{}={}'.format(_name, str(_val)))
+        argstr = ', '.join(args)
+        rt = self.command.return_annotation
+
+        if rt:
+            return '%s(%s) -> %s' % (name, argstr, rt.__name__)
+
+        return '%s(%s)' % (name, argstr)
+
+    def __repr__(self):
+        argstr = ', '.join([repr(self.command), repr(self.bindings)])
+        return '%s(%s)' % (self.__class__.__name__, argstr)
+
+    def copy(self):
+        return Partial(self.command, collections.OrderedDict(self.bindings))
+
+class NamedPartial(Partial):
+    def __init__(self, name, command, bindings):
+        super().__init__(command, bindings)
+        self.name = name
+        self.args = [name, command, bindings]
+
+    def __str__(self):
+        return '{} = {}'.format(self.name, super().__str__())
+
+    def __repr__(self):
+        argstr = ', '.join([repr(self.name), repr(self.command), repr(self.bindings)])
+        return '%s(%s)' % (self.__class__.__name__, argstr)
+
+    def copy(self):
+        return NamedPartial(self.name, self.command, collections.OrderedDict(self.bindings))
+
+    @staticmethod
+    def from_partial(partial, name):
+        return NamedPartial(name, partial.command, partial.bindings)
+
+class PartialArg(abc.ABC):
+    '''An argument in a `Partial`
+    '''
+
+    @abc.abstractproperty
+    def value(self):
+        '''The argument value
+        '''
+
+    @abc.abstractmethod
+    def __repr__(self):
+        pass
+
+    @abc.abstractmethod
+    def __str__(self):
+        pass
+
+class ValueArg(PartialArg):
+    def __init__(self, value):
+        self._value = value
+
+    @property
+    def value(self):
+        '''Gets the value associated with this argument
+        '''
+        return self._value
+
+    def __repr__(self):
+        return 'ValueArg(%s)' % repr(self.value)
+
+    def __str__(self):
+        return str(self.value)
+
+class NameArg(PartialArg):
+    def __init__(self, name):
+        self._name = name
+
+    @property
+    def value(self):
+        '''Gets the name associated with this argument
+        '''
+        return self._name
+
+    def __repr__(self):
+        return 'NameArg(%s)' % repr(self.value)
+
+    def __str__(self):
+        return str(self.value)
 
 def command(*args):
     '''Decorator to make the function a :class:`Command`.
@@ -277,7 +393,14 @@ class ModelMeta(type):
             '''Given a list of partials 'ps' return True if they're valid
             '''
             return ps.validate()
+
+        def validate_pre(ps: cls.Commands) -> bool:
+            '''Given a list of partials 'ps' return True if they're valid
+            '''
+            return ps.validate_pre()
+
         cls.validate = validate
+        cls.validate_pre = validate_pre
 
         class _CmdStrat(Strategy[cls.Command]):
             '''A Strategy for generating all permutations of valid commands in a model
@@ -294,6 +417,8 @@ class ModelMeta(type):
             k, *ks = cmds
             # generate all possible Partial's for k
             types = list(k.param_types)
+            # TODO: Move this deque() into something that doesn't fully evaluate generator first?
+            # or maybe to something that deque's slices
             args = collections.deque(value_args(depth, *types))
             while args:
                 argt = args.popleft()
@@ -310,8 +435,13 @@ class ModelMeta(type):
                         break
                 else:
                     # add partial
-                    partial_args = list(map(lambda v, t: PartialArg(v, None, t), argt, types))
-                    partial = Partial(k, partial_args, None)
+                    # TODO: Change OrderedDict() to be a better handler of bound arguments
+                    # maybe use a `BoundArguments` ?
+                    partial_args = collections.OrderedDict()
+                    for key, value in zip(k.parameters, argt):
+                        partial_args[key] = ValueArg(value)
+                    partial = Partial(k, partial_args)
+
                     # add partial to replacements
                     new_replacements = collections.defaultdict(list)
                     for key, value in replacements.items():
@@ -325,25 +455,28 @@ class ModelMeta(type):
 
             for partials in _generate_partials(depth, cmds, []):
                 var_c = 0
-                partials = list(partials)
+                partials = partials[:]
+
                 for i, p in enumerate(partials):
-                    for j, a in enumerate(p.args):
+                    for j, (name, a) in enumerate(p.bindings.items()):
                         # this arg should reference earlier partial
                         # so replace arg and partial
                         if isinstance(a.value, ModelMeta.replacement_t):
                             n = a.value.n
                             p_replacement = partials[n]
-                            var = p_replacement.var
 
-                            if p_replacement.var is None:
+                            # give it a name if it has none
+                            if not isinstance(p_replacement, NamedPartial):
                                 var = GET_VAR(var_c)
-                                partials[n] = p_replacement._replace(var=var)
+                                partials[n] = NamedPartial.from_partial(p_replacement, var)
                                 var_c += 1
+                            else:
+                                var = p_replacement.name
 
                             # replace the arg
-                            new_args = list(p.args)
-                            new_args[j] = a._replace(name=var)
-                            partials[i] = p._replace(args=new_args)
+                            partials[i] = partials[i].copy()
+                            partials[i].bindings[name] = NameArg(var)
+
                 yield cls.Commands(cls(), partials)
 
         cls.__partial_strat__ = _PartialStrat

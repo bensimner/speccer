@@ -10,7 +10,8 @@ import functools
 import contextlib
 import collections
 
-from .error_types import MissingStrategyError, AssertionFailure
+from .error_types import MissingStrategyError
+from .import utils
 
 FAILED_IMPLICATION = 0
 log = logging.getLogger('strategy')
@@ -24,43 +25,32 @@ __all__ = [
     'get_strat_instance',
     'mapS',
     'change_strategies',
-    'implication',
+    'implies',
 ]
 
-def implication(implication_function):
-    impl_name = implication_function.__name__
-    sig = inspect.signature(implication_function)
-    param = next(iter(sig.parameters.values()))
+def implies(f, t: type):
+    ''' f => t
+    '''
+    impl_name = f.__name__
 
-    t = param.annotation
-    if t is sig.empty:
-        # maybe try type inference?
-        raise ValueError('implication: `{}` missing type-annotation for parameter: `{}`'.format(impl_name, param.name))
+    # generate a new type which is t[f]
+    t_pretty = utils.pretty_type(t)
+    t_name = '{}->{}'.format(impl_name, t_pretty)
+    t_new = type(t_name, (t,), {})
 
-    def decorator(p_func):
-        @mapS(Strategy[t])
-        def newStrat(d, v, *args):
-            global FAILED_IMPLICATION
-            try:
-                if implication_function(v) is False:
-                    FAILED_IMPLICATION += 1
-                    raise StopIteration
-            except AssertionFailure as e:
-                e._info['value'] = v
-                raise
-            else:
-                yield v
+    @mapS(Strategy[t], register_type=t_new)
+    def newStrat(d, v, *args):
+        global FAILED_IMPLICATION
+        try:
+            if f(v) is False:
+                raise AssertionError('{}[{}] failed'.format(impl_name, t_pretty))
+        except AssertionError:
+            FAILED_IMPLICATION += 1
+        else:
+            yield v
 
-        newStrat.__name__ = implication_function.__name__
-
-        @functools.wraps(p_func)
-        def p(*args, **kwargs):
-            prop = p_func(*args, **kwargs)
-            prop.strategies[t] = newStrat
-            return prop
-        return p
-
-    return decorator
+    newStrat.__name__ = impl_name
+    return t_new
 
 def values(depth, t):
     yield from Strategy.get_strat_instance(t)(depth)
