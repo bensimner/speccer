@@ -1,37 +1,43 @@
 import unittest
 from speccer import *
+from speccer.model import NamedPartial, NameArg
 
 class Q:
     pass
 
 class TestModel(Model):
-    @command
-    def new(self, size: int) -> Q:
+    _STATE = ()
+
+    @command()
+    def new(size: int) -> Q:
         return Q()
 
-    @command 
-    def enqueue(self, q: Q, v: int):
+    @command()
+    def enqueue(q: Q, v: int):
         pass
 
-    @command
-    def dequeue(self, q: Q) -> int:
+    @command()
+    def dequeue(q: Q) -> int:
         pass
 
-@ModelProperty
-def q_is_valid(test_model: TestModel):
-    ModelProperty.assertIsValid(test_model)
+def contains_valid_names(cmds):
+    names = set()
+    for k in cmds:
+        if isinstance(k, NamedPartial):
+            names.add(k.name)
 
+    for k in cmds:
+        for n, a in k.bindings.items():
+            if isinstance(a, NameArg):
+                assertIn(a.value, names)
 
-class TestModelStrat(unittest.TestCase):
-    '''Test default_strategies
-    '''
-    def test_depth_0(self):
-        args = [[TestModel.new], [TestModel.enqueue], [TestModel.dequeue]]
-        actual = list(values(0, TestModel))
-        for a in args:
-            self.assertTrue(a in actual)
+    return True
 
-    def test_depth_1(self):
-        actual = list(values(1, TestModel))
-        for a in actual:
-            self.assertTrue(len(a) < 3)
+def prop_test_model_names():
+    return forall(
+        TestModel.Commands,
+        lambda cmds: contains_valid_names(cmds))
+
+class TC(unittest.TestCase):
+    def test_prop_test_model_names(self):
+        self.assertIsInstance(spec(6, prop_test_model_names, output=False), Success)

@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-import functools
 import collections
-import operator
 
 from speccer import *
 
@@ -10,6 +8,7 @@ class Q:
     '''
     def __init__(self, n):
         self._size = n + 1
+        #self._size = n # broken
         self._lp = 0
         self._rp = 0
         self._array = [0] * self._size
@@ -89,7 +88,7 @@ class MyModel(Model):
     @get.next
     def get(self, args, result):
         return State(self.state.array[1:], self.state.size)
-    
+
     @command()
     def count(q: Q) -> int:
         return q.count()
@@ -97,19 +96,19 @@ class MyModel(Model):
     @count.post
     def count(self, args, size):
         arr, _ = self.state
-        assertEqual(size, len(arr)) 
+        assertEqual(size, len(arr))
 
 # TODO: Implication of validating partials again
 # this needs type inference or something...
-@implication(MyModel.validate)
 def prop_model():
     '''Just check that the queue matches the model
     '''
-    return forall(MyModel.Commands,
-            lambda cmds: cmds.validate())
+    return forall(
+        implies(MyModel.validate_pre, MyModel.Commands),
+        lambda cmds: cmds.validate())
 
 if __name__ == '__main__':
-    spec(6, prop_model)
+    out = spec(6, prop_model)
 
 '''
 Sample Output:

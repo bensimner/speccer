@@ -10,9 +10,10 @@ def is_sorted(xs: List[T]) -> bool:
 # here the implication is a decorator since it changes the way List[int]'s are generated
 # but the forall just quantifies over the generated List[int]'s without changing how
 # they are generated
-@implication(is_sorted)
 def prop_sorted():
-    return forall(List[int], is_sorted)
+    return forall(
+        implies(is_sorted, List[int]),
+        is_sorted)
 
 if __name__ == '__main__':
     spec(3, prop_sorted)
