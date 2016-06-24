@@ -129,6 +129,11 @@ def _print_failure(prop, depth, failure):
         print(' counterexample:')
         _print_arg(failure.reason)
         _print_reason(failure)
+    elif isinstance(failure, UnrelatedException):
+        print(' exception:')
+        print()
+        e = failure.reason
+        traceback.print_exception(type(e), e, e.__traceback__)
 
     print('')
     print('FAIL')
@@ -165,6 +170,9 @@ def _spec(depth, prop_or_prop_set, args=()):
         f = prop_or_prop_set
         prop_or_prop_set = prop_or_prop_set(*args)
         prop_or_prop_set.name = f.__name__
+
+    if isinstance(prop_or_prop_set, pset.PSetMeta):
+        prop_or_prop_set = prop_or_prop_set()
 
     if isinstance(prop_or_prop_set, pset.PropertySet):
         prop_or_prop_set.depth = depth
@@ -280,6 +288,8 @@ def _bindings(depth, prop, types, f):
         except AssertionError:
             print('[_bindings] AssertionError on next(args) (assumed. ImplicationFailure)')
             continue
+        except Exception as e:
+            yield e
         else:
             bind_argt = s.bind(*argt)
             counter = bind_argt
@@ -289,8 +299,8 @@ def _run_test(counter, depth, prop, f):
     log = []
     prop.partial = (log, counter)
 
-    if not counter:
-        return Failure(prop)
+    if isinstance(counter, Exception):
+        return UnrelatedException(prop, counter)
 
     try:
         with change_assertions_log(log):

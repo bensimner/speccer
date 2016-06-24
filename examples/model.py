@@ -40,66 +40,56 @@ class MyModel(Model):
     # initial state
     _STATE = State(None, -1)
 
-    @command()
+    @command
     def new(n: int) -> Q:
         return Q(n)
 
-    @new.pre
-    def new(self, args):
+    def new_pre(self, args):
         ptr, _ = self.state
         n, = args
         assertIs(ptr, None)
         return n > 0
 
-    @new.next
-    def new(self, args, v):
+    def new_next(self, args, v):
         n, = args
         return State([], n)
 
-    @command()
+    @command
     def put(q: Q, n: int) -> None:
         q.enq(n)
 
-    @put.pre
-    def put(self, args):
+    def put_pre(self, args):
         arr, sz = self.state
         return len(arr) < sz
 
-    @put.next
-    def put(self, args, result):
+    def put_next(self, args, result):
         _, v = args
         return State(self.state.array + [v], self.state.size)
 
-    @command()
+    @command
     def get(q: Q) -> int:
         return q.deq()
 
-    @get.pre
-    def get(self, args):
+    def get_pre(self, args):
         arr, sz = self.state
         q, = args
         assertTrue(len(arr) > 0)
 
-    @get.post
-    def get(self, args, result):
+    def get_post(self, args, result):
         arr, _ = self.state
         assertEqual(arr[0], result)
 
-    @get.next
-    def get(self, args, result):
+    def get_next(self, args, result):
         return State(self.state.array[1:], self.state.size)
 
-    @command()
+    @command
     def count(q: Q) -> int:
         return q.count()
 
-    @count.post
-    def count(self, args, size):
+    def count_post(self, args, size):
         arr, _ = self.state
         assertEqual(size, len(arr))
 
-# TODO: Implication of validating partials again
-# this needs type inference or something...
 def prop_model():
     '''Just check that the queue matches the model
     '''
@@ -108,6 +98,7 @@ def prop_model():
         lambda cmds: cmds.validate())
 
 if __name__ == '__main__':
+    enableLogging(debug=False)
     out = spec(6, prop_model)
 
 '''

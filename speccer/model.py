@@ -142,46 +142,6 @@ def GET_VAR(i):
 
     return VAR_NAMES[i]
 
-def pretty_partials(partials, values=None, return_annotation=True, sep='; '):
-    def pretty_str(partial, value=None) -> str:
-        name = partial.command.name
-        var = partial.var
-        args = partial.args
-
-        s = name
-        li_args = []
-        for a in args:
-            if isinstance(a.value, ModelMeta.replacement_t):
-                li_args.append(partials[a.value.n].var)
-            else:
-                li_args.append(str(a))
-
-        s = '{s}({})'.format(', '.join(li_args), s=s)
-
-        if var:
-            s = '{var} = {s}'.format(var=var, s=s)
-
-        if return_annotation and partial.command.return_annotation:
-            s = '{s} :: {rt}'.format(s=s, rt=partial.command.return_annotation.__name__)
-
-        if values:
-            s = '{s} -> {v}'.format(s=s, v=value)
-
-        return s
-
-    if values is None:
-        return sep.join(map(pretty_str, partials))
-
-    out = []
-    for i, p in enumerate(partials):
-        try:
-            v = values[i]
-            out.append(pretty_str(p, value=v))
-        except IndexError:
-            out.append(pretty_str(p))
-
-    return sep.join(out)
-
 class Command:
     '''An @property like :class:`Command`
     It acts like @property except instead of getter and setter
@@ -194,15 +154,43 @@ class Command:
     '''
 
     def __init__(self, fdo, fpre=empty, fpost=empty, fnext=empty_state, fname=None):
-        self.fdo = fdo
-        self.fpre = fpre
-        self.fpost = fpost
-        self.fnext = fnext
+        self._fdo = fdo
+        self._fpre = fpre
+        self._fpost = fpost
+        self._fnext = fnext
 
         try:
             self.name = fname or fdo.__qualname__
         except AttributeError:
             self.name = fdo.__code__.co_name
+
+    @property
+    def fdo(self):
+        return self._fdo
+
+    @property
+    def fpre(self):
+        return self._fpre
+
+    @fpre.setter
+    def fpre(self, v):
+        self._fpre = v or self._fpre
+
+    @property
+    def fpost(self):
+        return self._fpost
+
+    @fpost.setter
+    def fpost(self, v):
+        self._fpost = v or self._fpost
+
+    @property
+    def fnext(self):
+        return self._fnext
+
+    @fnext.setter
+    def fnext(self, v):
+        self._fnext = v or self._fnext
 
     def pre(self, f):
         '''Precondition for this :class:`Command`
@@ -276,7 +264,7 @@ class Partial:
         argstr = ', '.join(args)
         rt = self.command.return_annotation
 
-        if rt:
+        if rt and False:
             return '%s(%s) -> %s' % (name, argstr, rt.__name__)
 
         return '%s(%s)' % (name, argstr)
@@ -357,16 +345,13 @@ class NameArg(PartialArg):
     def __str__(self):
         return str(self.value)
 
-def command(*args):
+def command(f):
     '''Decorator to make the function a :class:`Command`.
 
     Allowing easy definition of pre- and post- conditions as well as
     state transitions in a stateful model.
     '''
-    def decorator(f):
-        return Command(f)
-
-    return decorator
+    return Command(f)
 
 class ModelMeta(type):
     '''Metaclass of a :class:`Model`
@@ -380,6 +365,10 @@ class ModelMeta(type):
 
         for name, value in namespace.items():
             if isinstance(value, Command):
+                # look for _pre, _post and _next methods
+                value.fpre = namespace.get(name + '_pre', None)
+                value.fpost = namespace.get(name + '_post', None)
+                value.fnext = namespace.get(name + '_next', None)
                 cmdlist.append(value)
 
         cmdlist = sorted(cmdlist, key=lambda c: c.name)
@@ -417,8 +406,6 @@ class ModelMeta(type):
             k, *ks = cmds
             # generate all possible Partial's for k
             types = list(k.param_types)
-            # TODO: Move this deque() into something that doesn't fully evaluate generator first?
-            # or maybe to something that deque's slices
             args = collections.deque(value_args(depth, *types))
             while args:
                 argt = args.popleft()
