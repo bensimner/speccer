@@ -20,6 +20,7 @@ Example
     def prop_all_lists_are_sorted():
         return forall(List[int], is_sorted)
 
+    '''
     >>> spec(4, prop_all_lists_are_sorted)
     ....F
     ================================================================================
@@ -29,6 +30,7 @@ Example
        xs=[1, 0]
 
     FAIL
+    '''
 
 Properties
 ^^^^^^^^^^
