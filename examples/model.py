@@ -103,24 +103,25 @@ if __name__ == '__main__':
 '''
 Sample Output:
 
->> spec(6, prop_model) # with debug int strategy
-........................................
-..............................E
-========================================
-Failure after 71 call(s) (4809 did not meet implication)
-In Property `prop_model`
-----------------------------------------
-Found Counterexample:
-prop_model::FORALL(<class '__main__.MyModel'>_Commands) ->
-cmds =
-> a = new(1) -> Queue(size=1)
-> put(a, 0) -> None
-> get(a) -> 0
-> put(a, 0) -> None
-> count(a) -> -1
+>> spec(6, prop_model)
+................................................................................
+...........................F
+================================================================================
+Failure
+After 107 call(s) (1045 did not meet implication)
+To depth 6
+In property `prop_model`
 
-Reason:
- {count_postcondition}: -1 != 1
+prop_model.FORALL(validate_pre->MyModel_Commands) ->
+ counterexample:
+ cmds =
+> a = MyModel.new(n=1)
+> MyModel.put(q=a, n=0)
+> MyModel.get(q=a)
+> MyModel.put(q=a, n=0)
+> MyModel.count(q=a)
 
-FAIL.
+reason: {MyModel.count_postcondition}: -1 != 1
+
+FAIL
 '''

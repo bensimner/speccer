@@ -100,16 +100,26 @@ def _print_parents(outcome):
 
         print('')
 
+def _print_prop_summary(prop, outcome):
+    name = prop.name
+    failed_impl = prop.failed_implications
+    depth = outcome.state['depth']
+    n = outcome.state['calls']
+    print('After {} call(s) ({} did not meet implication)'.format(n, failed_impl))
+    print('To depth {}'.format(depth))
+    print('In property `{}`'.format(name))
+    print()
+
+
 def _print_success(prop, depth, success):
     print('-' * 80)
 
-    name = prop.name
     if isinstance(success, NoCounter):
         print('Found no counterexample')
-        print('In property `{}`'.format(name))
+        _print_prop_summary(prop, success)
     elif isinstance(success, Witness):
         print('Found witness')
-        print('In property `{}`'.format(name))
+        _print_prop_summary(prop, success)
 
         _print_parents(success)
         print('{} ->'.format(clause_to_path(success.prop)))
@@ -122,7 +132,9 @@ def _print_success(prop, depth, success):
 
 def _print_failure(prop, depth, failure):
     print('=' * 80)
-    print('Failure in', clause_to_path(failure.prop))
+
+    print('Failure')
+    _print_prop_summary(prop, failure)
     _print_parents(failure)
     print('{} ->'.format(clause_to_path(failure.prop)))
     if isinstance(failure, Counter):
@@ -161,7 +173,7 @@ def spec(depth, prop_or_prop_set, output=True, args=(), outfile=sys.stdout):
     > spec(3, f)
     > spec(3, f())
     '''
-
+    
     with contextlib.redirect_stdout(outfile if output else None):
         return _spec(depth, prop_or_prop_set, args=args)
 
@@ -194,6 +206,10 @@ def _spec(depth, prop_or_prop_set, args=()):
     return EmptySuccess(None, None)  # TODO: Better output for propsets?
 
 def _spec_prop(depth, prop):
+    # reset property state
+    # just incase it has been run before
+    prop.reset_implications()
+
     outs = run_clause(depth, prop)
     n = 0
     try:
@@ -206,6 +222,8 @@ def _spec_prop(depth, prop):
                 print('')
     except StopIteration as e:
         outcome = e.value
+        outcome.state['calls'] = n
+        outcome.state['depth'] = depth
 
         if isinstance(outcome, UnrelatedException):
             print('E')

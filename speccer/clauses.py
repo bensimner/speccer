@@ -16,6 +16,14 @@ class Outcome(abc.ABC):
         self._asserts = assertions
         self._extra_args = []
 
+        # execution state
+        # for nice output
+        self.state = {
+            'calls': 0,
+            'depth': 0,
+            'failed_implications': 0,
+        }
+
     @property
     def assertions(self):
         '''The list of assertion messages that *passed* during the execution
@@ -124,6 +132,7 @@ class Property(tuple):
     def __init__(self, type, args, name=None):
         self.name = name or _get_name(i=1)
         self.type = type
+        self.args = args
         # each Property clause can have a parent clause
         # for nested properties
         self.parent = None
@@ -131,6 +140,21 @@ class Property(tuple):
         # the Property can store its current, partially evaluated state
         # (assertions_log, counterexample/witness)
         self.partial = (None, None)
+
+    @property
+    def failed_implications(self):
+        types, _ = self.args
+        c = 0
+        for t in types:
+            if getattr(t, '_failed_implications', False):
+                c += t._failed_implications
+        return c
+
+    def reset_implications(self):
+        types, _ = self.args
+        for t in types:
+            if getattr(t, '_failed_implications', False):
+                t._failed_implications = 0
 
     def __str__(self):
         return self.name

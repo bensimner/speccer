@@ -13,7 +13,6 @@ import collections
 from .error_types import MissingStrategyError
 from .import utils
 
-FAILED_IMPLICATION = 0
 log = logging.getLogger('strategy')
 
 __all__ = [
@@ -36,15 +35,15 @@ def implies(f, t: type):
     t_pretty = utils.pretty_type(t)
     t_name = '{}->{}'.format(impl_name, t_pretty)
     t_new = type(t_name, (t,), {})
+    t._failed_implications = 0
 
     @mapS(Strategy[t], register_type=t_new)
     def newStrat(d, v, *args):
-        global FAILED_IMPLICATION
         try:
             if f(v) is False:
                 raise AssertionError('{}[{}] failed'.format(impl_name, t_pretty))
         except AssertionError:
-            FAILED_IMPLICATION += 1
+            t._failed_implications += 1
         else:
             yield v
 
