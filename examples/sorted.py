@@ -1,31 +1,29 @@
 #!/usr/bin/env python3
-from speccer import *
-from typing import T, List
+from speccer import spec, forall
+from typing import List
 
-def is_sorted(xs: List[T]) -> bool:
-    '''Returns True if 'xs' is sorted ascending, O(nlgn)
-    '''
-    return list(sorted(xs)) == xs
+def is_sorted(xs):
+    return xs == list(sorted(xs))
 
-# here the implication is a decorator since it changes the way List[int]'s are generated
-# but the forall just quantifies over the generated List[int]'s without changing how
-# they are generated
-def prop_sorted():
-    return forall(
-        implies(is_sorted, List[int]),
-        is_sorted)
+def prop_all_lists_are_sorted():
+    return forall(List[int], is_sorted)
 
 if __name__ == '__main__':
-    spec(3, prop_sorted)
+    spec(4, prop_all_lists_are_sorted)
 
 '''
 Sample Output:
 
-...............
-----------------------------------------
-Ran to 15 call(s) (6 did not meet implication)
-Found no counterexample to depth 3
-15/15
+....F
+================================================================================
+Failure
+After 4 call(s) (0 did not meet implication)
+To depth 4
+In property `prop_all_lists_are_sorted`
 
-OK.
+prop_all_lists_are_sorted.FORALL(List[int]) ->
+ counterexample:
+  xs=[1, 0]
+
+FAIL
 '''

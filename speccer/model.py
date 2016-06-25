@@ -38,9 +38,9 @@ class Partials:
         self.values = None
 
     def validate_pre(self):
-        return self.validate(only_check_pre=True)
+        return self.is_valid(only_check_pre=True)
 
-    def validate(self, only_check_pre=False):
+    def is_valid(self, only_check_pre=False):
         with spec.change_assertions_log(None):
             return self._validate_partials(only_check_pre=only_check_pre)
 
@@ -62,7 +62,7 @@ class Partials:
         for partial in self._partials:
             cmd = partial.command
             args = tuple(self._unwrap_args(partial.bindings.values()))
-            log.debug('validate({} : {})'.format(cmd, args))
+            log.debug('is_valid({} : {})'.format(cmd, args))
 
             try:
                 # precondition can just be `pass` which is not a failure case
@@ -378,17 +378,17 @@ class ModelMeta(type):
         cls.Command = type('{}_Command'.format(cls), (), {})
         cls.Commands = type('{}_Commands'.format(cls.__qualname__), (Partials,), {})
 
-        def validate(ps: cls.Commands) -> bool:
+        def is_valid(ps: cls.Commands) -> bool:
             '''Given a list of partials 'ps' return True if they're valid
             '''
-            return ps.validate()
+            return ps.is_valid()
 
         def validate_pre(ps: cls.Commands) -> bool:
             '''Given a list of partials 'ps' return True if they're valid
             '''
             return ps.validate_pre()
 
-        cls.validate = validate
+        cls.is_valid = is_valid
         cls.validate_pre = validate_pre
 
         class _CmdStrat(Strategy[cls.Command]):

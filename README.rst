@@ -24,13 +24,19 @@ Example
     >>> spec(4, prop_all_lists_are_sorted)
     ....F
     ================================================================================
-    Failure in prop_all_lists_are_sorted.FORALL(List[int])
+    Failure
+    After 4 call(s) (0 did not meet implication)
+    To depth 4
+    In property `prop_all_lists_are_sorted`
+
     prop_all_lists_are_sorted.FORALL(List[int]) ->
      counterexample:
-       xs=[1, 0]
+      xs=[1, 0]
 
     FAIL
     '''
+
+(see example_sorted_)
 
 Properties
 ^^^^^^^^^^
@@ -70,6 +76,16 @@ When defined as such, it is registered as the new strategy for ``int``'s and can
     >>> list(values(4, int))  # now uses MyIntStrat
     [0, 1, 2, 3]
 
+Strategies can be composed together simply by using ``spccer.mapS`` to create new Strategies from old ones.
+
+.. code:: python
+
+    @mapS(Strategy[List[int]], register_type=bytes)
+    def BytesStrat(depth, v):
+        yield bytes(v)
+
+The ``register_type`` keyword to ``mapS`` allows you to automatically register it under a different type. 
+
 Stateful Models
 ^^^^^^^^^^^^^^^
 
@@ -77,12 +93,77 @@ Sometimes programs have state that mutates. These can be represented as a state 
 
 .. code:: python
 
-    class MyArray:
-        '''A "real" array implementation'''
+    from speccer import *
 
-    class MyArray_Model(Model):
-        @command()
-        def 
+    class MyList:
+        '''A "real" list implementation'''
+        def append(self, v):
+            ...
+
+        def pop(self):
+            ...
+
+    class MyModel(Model):
+        _STATE = None
+
+        @command
+        def new() -> MyList:
+            return MyList()
+
+        @command
+        def append(a: MyList, v: int) -> None:
+            a.append(v)
+
+        @command
+        def pop(a: MyList) -> int:
+            return a.pop()
+
+        def new_pre(self, args):
+            assertIs(self.state, None)
+
+        def new_next(self, args, result):
+            return []
+
+        def append_next(self, args, result):
+            lst, n = args
+            return self.state + [n]
+
+        def pop_pre(self, args):
+            assertNotEqual(self.state, [])
+
+        def pop_post(self, args, result):
+            assertEqual(result, self.state[0])
+
+        def pop_next(self, args, result):
+            self.state.pop()
+            return self.state
+
+    def prop_model():
+        valid_commands_t = implies(MyModel.validate_pre, MyModel.Commands)
+        return forall(valid_commands_t, lambda cmds: cmds.is_valid())
+
+    '''
+    >> spec(6, prop_model)
+    .....F
+    ================================================================================
+    Failure
+    After 5 call(s) (20 did not meet implication)
+    To depth 6
+    In property `prop_model`
+
+    prop_model.FORALL(validate_pre->MyModel_Commands) ->
+     counterexample:
+     cmds =
+    > a = MyModel.new()
+    > MyModel.append(a=a, v=0)
+    > MyModel.pop(a=a)
+
+    reason: {MyModel.pop_postcondition}: None != 0
+
+    FAIL
+    '''
+
+(see example_model_)
 
 Theory
 ------
@@ -128,4 +209,6 @@ aid in tree pruning, which can be created as normal.
 .. _Hypothesis: https://pypi.python.org/pypi/hypothesis
 .. _SmallCheck: https://hackage.haskell.org/package/smallcheck
 .. _Feat: https://hackage.haskell.org/package/testing-feat 
+.. _example_sorted: examples/sorted.py
+.. _example_model: examples/model.py
 
