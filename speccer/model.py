@@ -398,49 +398,53 @@ class ModelMeta(type):
                 for k in cmdlist:
                     yield k
 
-        def _generate_partials(depth, cmds, partials, replacements=collections.defaultdict(list)):
-            if len(cmds) == 0:
-                yield partials
+        def _generate_partials_from_cmds(depth, remaining_cmds, built_partials, replacements=None):
+            replacements = replacements or collections.defaultdict(list)
+
+            # finished all cmds
+            if len(remaining_cmds) == 0:
+                yield built_partials
                 return
 
-            k, *ks = cmds
-            # generate all possible Partial's for k
-            types = list(k.param_types)
+            cmd, *cmds = remaining_cmds
+            types = list(cmd.param_types)
             args = collections.deque(value_args(depth, *types))
-            while args:
-                argt = args.popleft()
-                for i, (t, v) in enumerate(zip(types, argt)):
-                    # go back through partials and look for t's
-                    # by looking it up in `replacements`
-                    if not isinstance(v, ModelMeta.replacement_t):
-                        for r in replacements[t]:
-                            args.append(argt[:i] + (r,) + argt[1 + i:])  # something like that
+            first_pass = True
 
-                    # No strategy for generating t's
-                    # so do not leak this argt to the Partial list
+            while args:
+                arg_tuple = args.popleft()
+                for i, (t, v) in enumerate(zip(types, arg_tuple)):
+                    if first_pass:
+                        for r in replacements[t]:
+                            replacement = arg_tuple[:i] + (r,) + arg_tuple[1 + i:]
+                            args.append(replacement)
+                        first_pass = False
+
+                    # catch a missing strategy and do something with it
+                    # namely stop trying to generate these partials and try add a replacement there instead
                     if v is MissingStrategyError:
                         break
                 else:
-                    # add partial
-                    # TODO: Change OrderedDict() to be a better handler of bound arguments
-                    # maybe use a `BoundArguments` ?
-                    partial_args = collections.OrderedDict()
-                    for key, value in zip(k.parameters, argt):
+                    partial_args = collections.OrderedDict()  # TODO: Wrap this in a BoundArguments
+                    for key, value in zip(cmd.parameters, arg_tuple):
                         partial_args[key] = ValueArg(value)
-                    partial = Partial(k, partial_args)
+                    partial = Partial(cmd, partial_args)
 
-                    # add partial to replacements
+                    # copy defaultdict to depth 2
                     new_replacements = collections.defaultdict(list)
                     for key, value in replacements.items():
                         new_replacements[key] = list(value)
-                    new_replacements[k.return_annotation].append(ModelMeta.replacement_t(len(partials)))
-                    yield from _generate_partials(depth, ks, partials + [partial], new_replacements)
+
+                    new_replacements[cmd.return_annotation].append(ModelMeta.replacement_t(len(built_partials)))
+                    # TODO: Replace (built_partials + [partial]) with something more efficient?
+                    # TODO: Restructure this so it's fairer ?
+                    yield from _generate_partials_from_cmds(depth, cmds, built_partials + [partial], new_replacements)
 
         @mapS(Strategy[List[cls.Command]], register_type=cls.Commands)
         def _PartialStrat(depth, cmds):
             log.debug('_PartialStrat')
 
-            for partials in _generate_partials(depth, cmds, []):
+            for partials in _generate_partials_from_cmds(depth, cmds, []):
                 var_c = 0
                 partials = partials[:]
 

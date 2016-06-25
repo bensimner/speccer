@@ -98,7 +98,6 @@ def prop_model():
         lambda cmds: cmds.validate())
 
 if __name__ == '__main__':
-    enableLogging(debug=False)
     out = spec(6, prop_model)
 
 '''

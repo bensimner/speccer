@@ -144,10 +144,6 @@ class PairGen:
         return t
 
 def generate_args_from_strategies(*iters):
-    '''TODO: change this to do better ordering?
-Make sure it hits all lower values first
-i.e. 00 01 10 11 before 20 or 02 (1s before 2s)
-    '''
     gens = collections.deque(map(iter, iters))
     n = len(gens)
 
@@ -407,8 +403,32 @@ def mapS(strat, register_type=None, autoregister=False, **kwargs):
     def decorator(f):
         class MapStrat(strat, autoregister=autoregister, **kwargs):
             def generate(self, depth, *args):
+                val_gens = collections.deque()
+
+                def _yield_one():
+                    if not val_gens:
+                        raise StopIteration
+
+                    g = val_gens.popleft()
+
+                    try:
+                        _next = next(g)
+                    except StopIteration:
+                        return _yield_one()
+
+                    val_gens.append(g)
+                    return _next
+
                 for v in strat.generate(self, depth, *args):
-                    yield from f(depth, v, *args)
+                    val_gens.append(f(depth, v, *args))
+                    try:
+                        yield _yield_one()
+                    except StopIteration:
+                        '''Here, the generations so far might not yield anything, but further ones may'''
+
+                # now circle over them
+                while val_gens:
+                    yield _yield_one()
 
         if register_type:
             register(register_type, MapStrat)
