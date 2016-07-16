@@ -8,7 +8,8 @@ except ImportError:
     sys.exit(1)
 
 import logging
-from .strategy import Strategy
+from .strategy import Strategy, mapS
+from .utils import intersperse
 from . import strategy
 
 __all__ = [
@@ -36,11 +37,13 @@ class IntStrat(Strategy[int]):
 
 class ListStrat(Strategy[List[T]]):
     def generate(self, depth, t):
-        def mk_list(a: t, b: List[t]) -> List[t]:
-            return [a] + b
-
         yield []
-        yield from self.cons(mk_list)
+
+        def _list(x):
+            for l in Strategy[List[t]](depth - 1):
+                yield [x] + l
+
+        yield from intersperse(*[_list(x) for x in Strategy[t](depth)])
 
 class TupleStrat(Strategy[Tuple]):
     def generate(self, depth, *ts):
@@ -50,6 +53,11 @@ class StrStrat(Strategy[str]):
     def generate(self, depth):
         m = min(depth + 1, len(LETTERS))
         yield from LETTERS[:m]
+
+class BoolStrat(Strategy[bool]):
+    def generate(self, _):
+        yield False
+        yield True
 
 # for debugging
 if False:

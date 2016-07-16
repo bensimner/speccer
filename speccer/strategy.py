@@ -1,5 +1,6 @@
 # strategy.py - Strategies for producing arguments to model commands
 # author: Ben Simner
+from __future__ import generator_stop
 
 import abc
 import heapq
@@ -9,11 +10,12 @@ import inspect
 import functools
 import contextlib
 import collections
-
 from .error_types import MissingStrategyError
-from .import utils
+from . import utils
+from . import grapher
 
 log = logging.getLogger('strategy')
+generation_graph = grapher.Graph()
 
 __all__ = [
     'value_args',
@@ -35,7 +37,7 @@ def implies(f, t: type):
     t_pretty = utils.pretty_type(t)
     t_name = '{}->{}'.format(impl_name, t_pretty)
     t_new = type(t_name, (t,), {})
-    t._failed_implications = 0
+    t_new._failed_implications = 0
 
     @mapS(Strategy[t], register_type=t_new)
     def newStrat(d, v, *args):
@@ -43,11 +45,12 @@ def implies(f, t: type):
             if f(v) is False:
                 raise AssertionError('{}[{}] failed'.format(impl_name, t_pretty))
         except AssertionError:
-            t._failed_implications += 1
+            t_new._failed_implications += 1
         else:
             yield v
 
-    newStrat.__name__ = impl_name
+    newStrat.__name__ = t_name
+    newStrat.__qualname__ = t_name
     return t_new
 
 def values(depth, t):
@@ -157,7 +160,10 @@ def generate_args_from_strategies(*iters):
         nonlocal pair_next, pair_gen
         while True:
             if not pair_next:
-                pair_next = next(pair_gen)
+                try:
+                    pair_next = next(pair_gen)
+                except StopIteration:
+                    return
 
             log.debug('generate_args_from_strategies: \n values = {}\n t = {}'.format(values, pair_next))
 
@@ -218,6 +224,13 @@ def register(t, strategy, override=True):
 
     StratMeta.__strats__[t] = strategy
 
+def _pprint_stack(stack):
+    print('; '.join([
+        '{}.generate'.format('None' if 'cls' not in fi.frame.f_locals else fi.frame.f_locals['cls'].__qualname__)
+        for fi in stack
+        if fi.function == 'generate'
+    ]))
+
 class StratMeta(abc.ABCMeta):
     '''Metaclass for an strat generator
     handles setting up the LUT
@@ -244,6 +257,7 @@ class StratMeta(abc.ABCMeta):
         if _subtype:
             cls._subtype = _subtype
 
+        # seems fragile, overwrite __getattribute__ for this?
         cls.__autoregister__ = autoregister
         return cls
 
@@ -287,10 +301,10 @@ class StratMeta(abc.ABCMeta):
                 s = self.new(t)
 
                 def generate(self, d, *args):
-                    strat_instance = strat_origin(d)
-                    yield from strat_instance.generate(d, *(params + args))
+                    yield from strat_origin(d, *(params + args))
 
-                name = 'Generated_{}[{}]'.format(strat_origin.__name__, tuple(map(lambda p: p.__name__, params)))
+                args = ', '.join(map(utils.pretty_type, params))
+                name = 'Generated_{}[{}]'.format(strat_origin.__name__, args)
                 GenStrat = type(name, (s,), dict(generate=generate))
                 GenStrat.__module__ = strat_origin.__module__
                 StratMeta.__strats__[s] = GenStrat
@@ -305,8 +319,7 @@ class StratMeta(abc.ABCMeta):
                     s = self.new(t)
 
                     def generate(self, d, *args):
-                        strat_instance = strat_origin(d)
-                        yield from strat_instance.generate(d, *(tuple_params + args))
+                        yield from strat_origin(d, *(tuple_params + args))
 
                     name = 'GeneratedTuple_[{}]'.format(tuple(map(lambda p: p.__name__, tuple_params)))
                     GenStrat = type(name, (s,), dict(generate=generate))
@@ -320,15 +333,26 @@ class StratMeta(abc.ABCMeta):
 class StrategyIterator:
     def __init__(self, strat):
         self.strategy = strat
-        self._generator = strat.generate(strat._depth)
+        self._generator = strat.generate(strat._depth, *strat._args)
+
+        # Node for this StrategyIterator
+        self._gv_node = None
 
         name = str(strat)
         self.log = logging.getLogger('strategy.iterator({})'.format(name))
 
     def __next__(self):
         if self.strategy._depth > 0:
-            return next(self._generator)
+            with generation_graph.push_context(self.strategy._gv_node):
+                with generation_graph.push_context(remove=True) as n:
+                    self._gv_node = n
+                    v = next(self._generator)
+                    n.name = str(v)
+                    return v
 
+        # with PEP479 this will not automatically stop the parent generator
+        # it is important therefore to wrap the generator next() call in a try
+        # and except the StopIteration else it bubbles up like other exceptions
         raise StopIteration
 
     def __iter__(self):
@@ -345,10 +369,15 @@ class Strategy(metaclass=StratMeta):
     '''
     log = logging.getLogger('strategy')
 
-    def __init__(self, max_depth):
-        self.log.debug('new({})'.format(max_depth))
+    def __init__(self, depth, *args):
+        self.log.debug('{}.new({})'.format(self.__class__.__name__, depth))
         self._nodes = []
-        self._depth = max_depth
+        self._depth = depth
+        self._args = args
+
+        # Node for this StrategyIterator
+        node_name = '{}, depth:{}'.format(self.name, self._depth)
+        self._gv_node = generation_graph.new_node(name=node_name)
 
     def cons(self, f):
         '''Basically, takes some function `f`
@@ -381,6 +410,10 @@ class Strategy(metaclass=StratMeta):
     def __str__(self):
         return self.__class__.__name__
 
+    @property
+    def name(self):
+        return self.__class__.__qualname__
+
     def __repr__(self):
         name = self.__class__.__name__
         return '{}({})'.format(name, self._depth)
@@ -408,31 +441,43 @@ def mapS(strat, register_type=None, autoregister=False, **kwargs):
                     if not val_gens:
                         raise StopIteration
 
-                    g = val_gens.popleft()
+                    s_node, node, g = val_gens.popleft()
 
                     try:
-                        _next = next(g)
+                        # deal with the circle below the iteration
+                        # need to push those nodes back on to be caught
+                        # also give them dashed lines to show they're mapping (not actual)
+                        with generation_graph.push_context(s_node, edge_attrs={'style': 'dashed'}):
+                            v = next(g)
                     except StopIteration:
                         return _yield_one()
 
-                    val_gens.append(g)
-                    return _next
+                    val_gens.append((s_node, node, g))
+                    return v
 
-                for v in strat.generate(self, depth, *args):
-                    val_gens.append(f(depth, v, *args))
+                s = strat(depth, *args)
+                gen = iter(s)
+                while True:
                     try:
-                        yield _yield_one()
+                        v = next(gen)
                     except StopIteration:
-                        '''Here, the generations so far might not yield anything, but further ones may'''
+                        # TODO(BenSimner) this seems horribly wrong
+                        return
+
+                    val_gens.append((s._gv_node, gen._gv_node, f(depth, v, *args)))
+                    with contextlib.suppress(StopIteration):
+                        yield _yield_one()
 
                 # now circle over them
                 while val_gens:
-                    yield _yield_one()
+                    with contextlib.suppress(StopIteration):
+                        yield _yield_one()
 
         if register_type:
             register(register_type, MapStrat)
 
         MapStrat.__name__ = f.__name__
+        MapStrat.__qualname__ = f.__qualname__
         MapStrat.__module__ = strat.__module__
         return MapStrat
     return decorator

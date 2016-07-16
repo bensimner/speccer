@@ -10,10 +10,12 @@ from .clauses import  \
     Property, PropertyType, Success, Failure,  \
     Counter, Witness, NoWitness, NoCounter, \
     EmptySuccess, AssertionCounter, UnrelatedException
+
 from .import strategy
 from .import model
 from .import utils
 from .import pset
+from .import config
 
 __all__ = [
     'spec',
@@ -32,9 +34,6 @@ __all__ = [
 
 log = logging.getLogger('spec')
 AssertionsLogger = None
-
-# Global vars that aid in pretty-printing
-Output = False
 
 @contextlib.contextmanager
 def change_assertions_log(log=None):
@@ -173,9 +172,14 @@ def spec(depth, prop_or_prop_set, output=True, args=(), outfile=sys.stdout):
     > spec(3, f)
     > spec(3, f())
     '''
-    
+
     with contextlib.redirect_stdout(outfile if output else None):
-        return _spec(depth, prop_or_prop_set, args=args)
+        out = _spec(depth, prop_or_prop_set, args=args)
+
+    if config.CONFIG.graphviz:
+        strategy.generation_graph.render()
+
+    return out
 
 def _spec(depth, prop_or_prop_set, args=()):
     if isinstance(prop_or_prop_set, types.FunctionType):

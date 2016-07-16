@@ -1,3 +1,15 @@
+import contextlib
+import collections
+
+def intersperse(*its):
+    iters = collections.deque(map(iter, its))
+    while iters:
+        with contextlib.suppress(StopIteration):
+            i = iters.popleft()
+            yield next(i)
+            iters.append(i)
+
+
 def pretty_type(t):
     '''Pretty string of some type
     '''

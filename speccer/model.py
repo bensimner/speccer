@@ -102,6 +102,9 @@ class Partials:
         log.debug('*** PASS: Valid')
         return True
 
+    def __len__(self):
+        return len(self._partials)
+
     def __getitem__(self, i):
         return self._partials[i]
 
@@ -131,7 +134,7 @@ class Partials:
 
 log = logging.getLogger('model')
 
-VAR_LENGTH = 3
+VAR_LENGTH = 0
 VAR_NAMES = list(values(VAR_LENGTH, str))
 
 def GET_VAR(i):
@@ -396,6 +399,7 @@ class ModelMeta(type):
             '''
             def generate(self, depth):
                 for k in cmdlist:
+                    log.debug('YIELD_4')
                     yield k
 
         def _generate_partials_from_cmds(depth, remaining_cmds, built_partials, replacements=None):
@@ -403,6 +407,7 @@ class ModelMeta(type):
 
             # finished all cmds
             if len(remaining_cmds) == 0:
+                log.debug('YIELD_3')
                 yield built_partials
                 return
 
@@ -438,6 +443,7 @@ class ModelMeta(type):
                     new_replacements[cmd.return_annotation].append(ModelMeta.replacement_t(len(built_partials)))
                     # TODO: Replace (built_partials + [partial]) with something more efficient?
                     # TODO: Restructure this so it's fairer ?
+                    log.debug('YIELD_2')
                     yield from _generate_partials_from_cmds(depth, cmds, built_partials + [partial], new_replacements)
 
         @mapS(Strategy[List[cls.Command]], register_type=cls.Commands)
