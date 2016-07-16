@@ -44,15 +44,16 @@ def unittest_wrapper(depth):
             pass
 
         for p in NewPSet.__properties__:
-            def _f(self):
+            def _f(self, p=p):
                 self.depth = depth
                 out = speccer.spec(depth, p, output=False, args=(self,))
                 # raise other exceptions out
                 if isinstance(out, speccer.UnrelatedException):
                     raise out.reason
+
                 self.assertIsInstance(out, speccer.clauses.Success)
 
-            setattr(pset, 'test_{}'.format(p.__name__), _f)
+            setattr(NewPSet, 'test_{}'.format(p.__name__), _f)
 
         NewPSet.__name__ = pset.__name__
         NewPSet.__qualname__ = pset.__qualname__
