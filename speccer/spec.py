@@ -165,6 +165,9 @@ def spec(depth, prop_or_prop_set, output=True, args=(), outfile=sys.stdout):
     if 'prop' is not a :class:`Property` but rather a function, it will be called
     and metadata transfered
 
+    args are the arguments to the pass to underlying function/method calls if prop_or_prop_set
+    is a function/method or is a PropertySet
+
     def f():
         return forall(int, lambda i: i == 1)
 
@@ -182,7 +185,7 @@ def spec(depth, prop_or_prop_set, output=True, args=(), outfile=sys.stdout):
     return out
 
 def _spec(depth, prop_or_prop_set, args=()):
-    if isinstance(prop_or_prop_set, types.FunctionType):
+    if isinstance(prop_or_prop_set, types.FunctionType) or isinstance(prop_or_prop_set, types.MethodType):
         f = prop_or_prop_set
         prop_or_prop_set = prop_or_prop_set(*args)
         prop_or_prop_set.name = f.__name__
@@ -197,9 +200,8 @@ def _spec(depth, prop_or_prop_set, args=()):
         return _spec_prop(depth, prop_or_prop_set)
     else:
         try:
-            props = iter(prop_or_prop_set)
-
-            for p in props:
+            for p_name in prop_or_prop_set:
+                p = getattr(prop_or_prop_set, p_name)
                 out = _spec(depth, p, args=args)
                 if isinstance(out, Failure):
                     return out
