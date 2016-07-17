@@ -7,15 +7,15 @@ class Q:
 class TestModel(Model):
     _STATE = ()
 
-    @command()
+    @command
     def new(size: int) -> Q:
         return Q()
 
-    @command()
+    @command
     def enqueue(q: Q, v: int):
         pass
 
-    @command()
+    @command
     def dequeue(q: Q) -> int:
         pass
 

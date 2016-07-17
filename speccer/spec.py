@@ -6,16 +6,12 @@ import functools
 import traceback
 import contextlib
 
-from .clauses import  \
-    Property, PropertyType, Success, Failure,  \
-    Counter, Witness, NoWitness, NoCounter, \
-    EmptySuccess, AssertionCounter, UnrelatedException
-
-from .import strategy
-from .import model
-from .import utils
-from .import pset
-from .import config
+from . import clauses
+from . import strategy
+from . import model
+from . import utils
+from . import pset
+from . import config
 
 __all__ = [
     'spec',
@@ -78,7 +74,7 @@ def _print_reason(outcome):
         for a in outcome.assertions:
             print(' > assert,    {}'.format(a))
 
-    if isinstance(outcome, AssertionCounter):
+    if isinstance(outcome, clauses.AssertionCounter):
         print('')
         print('reason: {}'.format(outcome.message))
 
@@ -113,10 +109,10 @@ def _print_prop_summary(prop, outcome):
 def _print_success(prop, depth, success):
     print('-' * 80)
 
-    if isinstance(success, NoCounter):
+    if isinstance(success, clauses.NoCounter):
         print('Found no counterexample')
         _print_prop_summary(prop, success)
-    elif isinstance(success, Witness):
+    elif isinstance(success, clauses.Witness):
         print('Found witness')
         _print_prop_summary(prop, success)
 
@@ -136,11 +132,11 @@ def _print_failure(prop, depth, failure):
     _print_prop_summary(prop, failure)
     _print_parents(failure)
     print('{} ->'.format(clause_to_path(failure.prop)))
-    if isinstance(failure, Counter):
+    if isinstance(failure, clauses.Counter):
         print(' counterexample:')
         _print_arg(failure.reason)
         _print_reason(failure)
-    elif isinstance(failure, UnrelatedException):
+    elif isinstance(failure, clauses.UnrelatedException):
         print(' exception:')
         print()
         e = failure.reason
@@ -150,7 +146,7 @@ def _print_failure(prop, depth, failure):
     print('FAIL')
 
 def _pretty_print(prop, depth, outcome):
-    if isinstance(outcome, Success):
+    if isinstance(outcome, clauses.Success):
         _print_success(prop, depth, outcome)
     else:
         _print_failure(prop, depth, outcome)
@@ -196,20 +192,27 @@ def _spec(depth, prop_or_prop_set, args=()):
     if isinstance(prop_or_prop_set, pset.PropertySet):
         prop_or_prop_set.depth = depth
 
-    if isinstance(prop_or_prop_set, Property):
+    if isinstance(prop_or_prop_set, clauses.Property):
         return _spec_prop(depth, prop_or_prop_set)
     else:
         try:
             for p_name in prop_or_prop_set:
                 p = getattr(prop_or_prop_set, p_name)
                 out = _spec(depth, p, args=args)
-                if isinstance(out, Failure):
+                if isinstance(out, clauses.Failure):
                     return out
 
                 print('~' * 80)
         except TypeError:
             raise
-    return EmptySuccess(None, None)  # TODO: Better output for propsets?
+    return clauses.UnitSuccess(None, None)  # TODO: Better output for propsets?
+
+def _get_outcome(p):
+    try:
+        while True:
+            next(p)
+    except StopIteration as e:
+        return e.value
 
 def _spec_prop(depth, prop):
     # reset property state
@@ -231,9 +234,9 @@ def _spec_prop(depth, prop):
         outcome.state['calls'] = n
         outcome.state['depth'] = depth
 
-        if isinstance(outcome, UnrelatedException):
+        if isinstance(outcome, clauses.UnrelatedException):
             print('E')
-        elif isinstance(outcome, Failure):
+        elif isinstance(outcome, clauses.Failure):
             print('F')
         else:
             print('.')
@@ -248,7 +251,12 @@ def clause_to_path(clause):
     location = ''
     p = clause
     while p is not None:
-        type_name = p[0].name
+        typ = p[0]
+        type_name = typ.name
+        if typ not in [clauses.PropertyType.FORALL, clauses.PropertyType.EXISTS, ]:
+            p = p.parent
+            continue
+
         types = p[1][0]
         name = '{}({})'.format(type_name, ', '.join(map(utils.pretty_type, types)))
 
@@ -268,30 +276,74 @@ def run_clause(depth, clause):
     run it and yield all the results
     '''
     t, *args = clause
-    if t == PropertyType.FORALL:
+    if t == clauses.PropertyType.FORALL:
         return (yield from run_forall(depth, clause))
-    elif t == PropertyType.EXISTS:
+    elif t == clauses.PropertyType.EXISTS:
         return (yield from run_exists(depth, clause))
-    elif t == PropertyType.EMPTY:
-        return EmptySuccess(clause)
+    elif t == clauses.PropertyType.EMPTY:
+        return clauses.EmptyFailure(clause)
+    elif t == clauses.PropertyType.UNIT:
+        return clauses.UnitSuccess(clause)
+    elif t == clauses.PropertyType.OR:
+        return (yield from run_or(depth, clause))
+    elif t == clauses.PropertyType.AND:
+        return (yield from run_and(depth, clause))
     else:
         raise ValueError('Unknown Clause `{}`'.format(clause))
 
 def run_forall(depth, clause):
     _, [gen_types, f] = clause
     for result in _run_prop(depth, clause, gen_types, f):
-        if isinstance(result, Failure):
+        if isinstance(result, clauses.Failure):
             return result
         yield
-    return NoCounter(clause, result.assertions)
+    return clauses.NoCounter(clause, result.assertions)
 
 def run_exists(depth, clause):
     _, (gen_types, f) = clause
     for result in _run_prop(depth, clause, gen_types, f):
-        if isinstance(result, Success):
+        if isinstance(result, clauses.Success):
             return result
         yield
-    return NoWitness(clause)
+    return clauses.NoWitness(clause)
+
+def run_or(depth, clause):
+    _, (a, b) = clause
+    out = run_clause(depth, a)
+    try:
+        while True:
+            next(out)
+            yield
+    except StopIteration as e:
+        if isinstance(e.value, clauses.Success):
+            return e.value
+
+    out2 = run_clause(depth, b)
+    try:
+        while True:
+            next(out2)
+            yield
+    except StopIteration as e:
+        return e.value
+
+def run_and(depth, clause):
+    _, (a, b) = clause
+    out = run_clause(depth, a)
+    try:
+        while True:
+            next(out)
+            yield
+    except StopIteration as e:
+        if isinstance(e.value, clauses.Failure):
+            return e.value
+
+    out2 = run_clause(depth, b)
+    try:
+        while True:
+            next(out2)
+            yield
+    except StopIteration as e:
+        return e.value
 
 def _get_args(depth, prop, types, f):
     strats = []
@@ -324,15 +376,15 @@ def _run_test(counter, depth, prop, f):
     prop.partial = (log, counter)
 
     if isinstance(counter, Exception):
-        return UnrelatedException(prop, counter)
+        return clauses.UnrelatedException(prop, counter)
 
     try:
         with change_assertions_log(log):
             v = f(*counter.args, **counter.kwargs)
 
         if not v:
-            return Counter(prop, counter, assertions=log)
-        elif isinstance(v, Property):
+            return clauses.Counter(prop, counter, assertions=log)
+        elif isinstance(v, clauses.Property):
             v.parent = prop
             c = run_clause(depth, v)
             try:
@@ -341,11 +393,11 @@ def _run_test(counter, depth, prop, f):
             except StopIteration as e:
                 return e.value
     except AssertionError as e:
-        return AssertionCounter(prop, counter, e.args[0], assertions=log)
+        return clauses.AssertionCounter(prop, counter, e.args[0], assertions=log)
     except Exception as e:
-        return UnrelatedException(prop, e)
+        return clauses.UnrelatedException(prop, e)
     else:
-        return Witness(prop, counter, assertions=log)
+        return clauses.Witness(prop, counter, assertions=log)
 
 def _run_prop(depth, prop, types, f):
     '''Given some Property function `f` from Property `prop`

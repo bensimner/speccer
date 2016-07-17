@@ -7,7 +7,11 @@ import inspect
 class PropertyType(enum.Enum):
     FORALL = 1
     EXISTS = 2
-    EMPTY = 3
+    UNIT = 3
+    EMPTY = 4
+
+    OR = 5
+    AND = 6
 
 
 class Outcome(abc.ABC):
@@ -51,10 +55,13 @@ class Success(Outcome):
     def reason(self):
         return 'N/A'
 
-class EmptySuccess(Success):
+class UnitSuccess(Success):
+    def __init__(self, clause):
+        super().__init__(clause, [])
+
     @property
     def reason(self):
-        return '<empty>'
+        return '<unit>'
 
 class Witness(Success):
     def __init__(self, prop, witness, assertions=None):
@@ -73,6 +80,15 @@ class Failure(Outcome):
     @property
     def reason(self):
         return self._msg
+
+class EmptyFailure(Failure):
+    def __init__(self, clause):
+        super().__init__(clause, [])
+
+    @property
+    def reason(self):
+        return '<empty>'
+
 
 class NoWitness(Failure):
     pass
@@ -141,8 +157,35 @@ class Property(tuple):
         # (assertions_log, counterexample/witness)
         self.partial = (None, None)
 
+    def __and__(self, other):
+        if not isinstance(other, Property):
+            raise TypeError('Can only & together Property instances')
+
+        return Property(PropertyType.AND, [self, other])
+
+    def __add__(self, other):
+        if not isinstance(other, Property):
+            raise TypeError('Can only + together Property instances')
+
+        return Property(PropertyType.OR, [self, other])
+
+    def __mul__(self, other):
+        if not isinstance(other, Property):
+            raise TypeError('Can only * together Property instances')
+
+        return Property(PropertyType.AND, [self, other])
+
+    def __or__(self, other):
+        if not isinstance(other, Property):
+            raise TypeError('Can only | together Property instances')
+
+        return Property(PropertyType.OR, [self, other])
+
     @property
     def failed_implications(self):
+        if self.type not in [PropertyType.FORALL, PropertyType.EXISTS]:
+            return 0
+
         types, _ = self.args
         c = 0
         for t in types:
@@ -151,6 +194,9 @@ class Property(tuple):
         return c
 
     def reset_implications(self):
+        if self.type not in [PropertyType.FORALL, PropertyType.EXISTS]:
+            return
+
         types, _ = self.args
         for t in types:
             if getattr(t, '_failed_implications', False):
@@ -168,6 +214,13 @@ def empty():
     Always fails
     '''
     return Property(PropertyType.EMPTY, [])
+
+def unit():
+    '''The unit property
+
+    Always passes
+    '''
+    return Property(PropertyType.UNIT, [])
 
 def forall(*args):
     '''Forall `type` the function 'f' holds
