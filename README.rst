@@ -1,7 +1,7 @@
 Speccer
 =======
 
-*Determinitsic property-based testing in python*
+*Deterministic property-based testing in python*
 
 
 Usage

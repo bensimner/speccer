@@ -11,7 +11,8 @@ Contents:
 .. toctree::
    :maxdepth: 2
 
-
+   writing-properties
+   api/modules
 
 Indices and tables
 ==================
