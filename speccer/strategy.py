@@ -32,6 +32,7 @@ def implies(f, t: type):
     ''' f => t
     '''
     impl_name = f.__name__
+    t = utils.convert_type(t)
 
     # generate a new type which is t[f]
     t_pretty = utils.pretty_type(t)
@@ -294,10 +295,9 @@ class StratMeta(abc.ABCMeta):
             # this allows generation of higher-kinded types such as List[~T]
             try:
                 origin = t.__origin__
-                params = t.__parameters__
+                params = t.__args__
 
                 strat_origin = self.get_strat_instance(origin)
-
                 s = self.new(t)
 
                 def generate(self, d, *args):

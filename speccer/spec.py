@@ -1,7 +1,5 @@
 import sys
 import types
-import inspect
-import logging
 import functools
 import traceback
 import contextlib
@@ -12,43 +10,6 @@ from . import model
 from . import utils
 from . import pset
 from . import config
-
-__all__ = [
-    'spec',
-    'assertTrue',
-    'assertFalse',
-    'assertThat',
-    'assertEqual',
-    'assertNotEqual',
-    'assertIs',
-    'assertIsNot',
-    'assertIsInstance',
-    'assertIsNotInstance',
-    'assertIn',
-    'change_assertions_log',
-]
-
-log = logging.getLogger('spec')
-AssertionsLogger = None
-
-@contextlib.contextmanager
-def change_assertions_log(log=None):
-    global AssertionsLogger
-    old_log = AssertionsLogger
-    AssertionsLogger = log
-    yield
-    AssertionsLogger = old_log
-
-def _assert(p, succ_m=None, fail_m='_assert'):
-    if not p:
-        raise AssertionError(fail_m)
-    elif AssertionsLogger is not None:
-        if succ_m:
-            AssertionsLogger.append(succ_m)
-        else:
-            AssertionsLogger.append('¬({})'.format(fail_m))
-
-    return True
 
 @functools.lru_cache(32)
 def _find_ancestors(outcome):
@@ -141,6 +102,8 @@ def _print_failure(prop, depth, failure):
         print()
         e = failure.reason
         traceback.print_exception(type(e), e, e.__traceback__)
+    elif isinstance(failure, clauses.NoWitness):
+        print(' no witness.')
 
     print('')
     print('FAIL')
@@ -223,7 +186,12 @@ def _spec_prop(depth, prop):
     n = 0
     try:
         while True:
-            next(outs)
+            try:
+                next(outs)
+            except StopIteration:
+                raise
+            except Exception as e:
+                raise StopIteration(clauses.UnrelatedException(prop, e))
 
             print('.', flush=True, end='')
             n += 1
@@ -246,18 +214,26 @@ def _spec_prop(depth, prop):
     return outcome
 
 def clause_to_path(clause):
+    location = []
+    p = clause
+    while p is not None:
+        location.append(p.name)
+        p = p.parent
+    return '.'.join(location)
+
+def _clause_to_path(clause):
     '''Convert a Property clause to a prettyified string
     '''
     location = ''
     p = clause
     while p is not None:
-        typ = p[0]
+        typ = p.type
         type_name = typ.name
         if typ not in [clauses.PropertyType.FORALL, clauses.PropertyType.EXISTS, ]:
             p = p.parent
             continue
 
-        types = p[1][0]
+        types = p.args[0]
         name = '{}({})'.format(type_name, ', '.join(map(utils.pretty_type, types)))
 
         if not location:
@@ -275,171 +251,4 @@ def run_clause(depth, clause):
     '''Given some Property clause
     run it and yield all the results
     '''
-    t, *args = clause
-    if t == clauses.PropertyType.FORALL:
-        return (yield from run_forall(depth, clause))
-    elif t == clauses.PropertyType.EXISTS:
-        return (yield from run_exists(depth, clause))
-    elif t == clauses.PropertyType.EMPTY:
-        return clauses.EmptyFailure(clause)
-    elif t == clauses.PropertyType.UNIT:
-        return clauses.UnitSuccess(clause)
-    elif t == clauses.PropertyType.OR:
-        return (yield from run_or(depth, clause))
-    elif t == clauses.PropertyType.AND:
-        return (yield from run_and(depth, clause))
-    else:
-        raise ValueError('Unknown Clause `{}`'.format(clause))
-
-def run_forall(depth, clause):
-    _, [gen_types, f] = clause
-    for result in _run_prop(depth, clause, gen_types, f):
-        if isinstance(result, clauses.Failure):
-            return result
-        yield
-    return clauses.NoCounter(clause, result.assertions)
-
-def run_exists(depth, clause):
-    _, (gen_types, f) = clause
-    for result in _run_prop(depth, clause, gen_types, f):
-        if isinstance(result, clauses.Success):
-            return result
-        yield
-    return clauses.NoWitness(clause)
-
-def run_or(depth, clause):
-    _, (a, b) = clause
-    out = run_clause(depth, a)
-    try:
-        while True:
-            next(out)
-            yield
-    except StopIteration as e:
-        if isinstance(e.value, clauses.Success):
-            return e.value
-
-    out2 = run_clause(depth, b)
-    try:
-        while True:
-            next(out2)
-            yield
-    except StopIteration as e:
-        return e.value
-
-def run_and(depth, clause):
-    _, (a, b) = clause
-    out = run_clause(depth, a)
-    try:
-        while True:
-            next(out)
-            yield
-    except StopIteration as e:
-        if isinstance(e.value, clauses.Failure):
-            return e.value
-
-    out2 = run_clause(depth, b)
-    try:
-        while True:
-            next(out2)
-            yield
-    except StopIteration as e:
-        return e.value
-
-def _get_args(depth, prop, types, f):
-    strats = []
-    for t in types:
-        strat = strategy.get_strat_instance(t)
-        strats.append(strat(depth))
-
-    yield from strategy.generate_args_from_strategies(*strats)
-
-def _bindings(depth, prop, types, f):
-    args = _get_args(depth, prop, types, f)
-    s = inspect.signature(f)
-    while True:
-        try:
-            argt = next(args)
-        except StopIteration:
-            break
-        except AssertionError:
-            print('[_bindings] AssertionError on next(args) (assumed. ImplicationFailure)')
-            continue
-        except Exception as e:
-            yield e
-        else:
-            bind_argt = s.bind(*argt)
-            counter = bind_argt
-            yield counter
-
-def _run_test(counter, depth, prop, f):
-    log = []
-    prop.partial = (log, counter)
-
-    if isinstance(counter, Exception):
-        return clauses.UnrelatedException(prop, counter)
-
-    try:
-        with change_assertions_log(log):
-            v = f(*counter.args, **counter.kwargs)
-
-        if not v:
-            return clauses.Counter(prop, counter, assertions=log)
-        elif isinstance(v, clauses.Property):
-            v.parent = prop
-            c = run_clause(depth, v)
-            try:
-                while True:
-                    next(c)
-            except StopIteration as e:
-                return e.value
-    except AssertionError as e:
-        return clauses.AssertionCounter(prop, counter, e.args[0], assertions=log)
-    except Exception as e:
-        return clauses.UnrelatedException(prop, e)
-    else:
-        return clauses.Witness(prop, counter, assertions=log)
-
-def _run_prop(depth, prop, types, f):
-    '''Given some Property function `f` from Property `prop`
-    parametrized over `types` then run `f` on all tuples of type Tuple[*types]
-    '''
-    for counter in _bindings(depth, prop, types, f):
-        yield _run_test(counter, depth, prop, f)
-
-# UnitTest style assertions
-def assertThat(f, *args, fmt='{name}({argv})', fmt_fail='{name}({argv}) is false'):
-    s_args = ', '.join(map(repr, args))
-
-    try:
-        name = f.__code__.co_name
-    except AttributeError:
-        name = str(f)
-
-    return _assert(f(*args), fmt.format(argv=s_args, name=name), fmt_fail.format(argv=s_args, name=name))
-
-def assertTrue(a, fmt='True', fmt_fail='False'):
-    return _assert(a, fmt.format(a=a), fmt_fail.format(a=a))
-
-def assertFalse(a, fmt='False', fmt_fail='True'):
-    return _assert(not a, fmt.format(a=a), fmt_fail.format(a=a))
-
-def assertEqual(a, b, fmt='{a} == {b}', fmt_fail='{a} != {b}'):
-    return _assert(a == b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
-
-def assertIs(a, b, fmt='{a} is {b}', fmt_fail='{a} is not {b}'):
-    return _assert(a is b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
-
-def assertNotEqual(a, b, fmt='{a} != {b}', fmt_fail='{a} == {b}'):
-    return _assert(a != b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
-
-def assertIsNot(a, b, fmt='{a} is not {b}', fmt_fail='{a} is {b}'):
-    return _assert(a is not b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
-
-def assertIsNotInstance(a, b, fmt='not isinstance({a}, {b})', fmt_fail='isinstance({a}, {b})'):
-    return _assert(not isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
-
-def assertIsInstance(a, b, fmt='isinstance({a}, {b})', fmt_fail='not isinstance({a}, {b})'):
-    return _assert(isinstance(a, b), fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
-
-def assertIn(a, b, fmt='{a} in {b}', fmt_fail='{a} not in {b}'):
-    return _assert(a in b, fmt.format(a=a, b=b), fmt_fail.format(a=a, b=b))
+    return (yield from clause.run(depth))

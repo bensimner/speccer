@@ -12,12 +12,12 @@ class ClausesTestCase(unittest.TestCase):
     def test_or(self):
         z = self.x | self.y
         self.assertIsInstance(z, Property)
-        self.assertEqual(z[0], PropertyType.OR)
+        self.assertEqual(z.type, PropertyType.OR)
 
     def test_and(self):
         z = self.x & self.y
         self.assertIsInstance(z, Property)
-        self.assertEqual(z[0], PropertyType.AND)
+        self.assertEqual(z.type, PropertyType.AND)
 
     def test_spec_or(self):
         v = spec(3, self.x & self.y, output=False)

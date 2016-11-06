@@ -35,7 +35,7 @@ class IntStrat(Strategy[int]):
             yield i
             yield -i
 
-class ListStrat(Strategy[List[T]]):
+class ListStrat(Strategy[List]):
     def generate(self, depth, t):
         yield []
 

@@ -12,8 +12,8 @@ def prop_sortedReversed():
 
     (obviously False, to test output)
     '''
-    return forall(List[int], 
-            lambda xs: assertThat(is_sorted, list(reversed(xs))))
+    return forall(List[int],
+                  lambda xs: assertThat(is_sorted, list(reversed(xs))))
 
 if __name__ == '__main__':
     spec(3, prop_sortedReversed)

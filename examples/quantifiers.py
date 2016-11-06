@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from speccer import *
+import speccer
 from typing import T, List
 
 def is_sorted(xs: List[T]) -> bool:
@@ -10,17 +10,17 @@ def is_sorted(xs: List[T]) -> bool:
 def prop_sorted():
     '''A sorted list of length 2 exists
     '''
-    return exists(List[int], 
-            lambda xs: assertThat(is_sorted, xs) and assertEqual(len(xs), 2))
+    return speccer.exists(List[int],
+            lambda xs: speccer.assertThat(is_sorted, xs) and speccer.assertEqual(len(xs), 2))
 
 def prop_nested():
-    return forall(List[int],
-            lambda xs: forall(int,
-                lambda y: y in xs))
+    return speccer.forall(List[int],
+                          lambda xs: speccer.forall(int,
+                                                    lambda y: y in xs))
 
 
 if __name__ == '__main__':
-    spec(3, prop_nested)
+    speccer.spec(3, prop_nested)
 
 '''
 Sample Output:

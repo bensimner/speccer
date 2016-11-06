@@ -4,6 +4,7 @@ from .strategy import *
 from .spec import *
 from .clauses import *
 from .pset import *
+from .asserts import *
 
 import logging.config
 

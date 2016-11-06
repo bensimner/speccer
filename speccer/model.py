@@ -9,6 +9,7 @@ from typing import List
 from pprint import pprint
 
 from . import spec
+from . import asserts
 from .strategy import Strategy, values, value_args, mapS
 from .error_types import MissingStrategyError, InvalidPartials
 
@@ -41,7 +42,7 @@ class Partials:
         return self.is_valid(only_check_pre=True)
 
     def is_valid(self, only_check_pre=False):
-        with spec.change_assertions_log(None):
+        with asserts.change_assertions_log(None):
             return self._validate_partials(only_check_pre=only_check_pre)
 
     def _unwrap_args(self, args):
