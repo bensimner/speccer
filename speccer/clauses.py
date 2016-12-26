@@ -10,10 +10,11 @@ from . import clauses
 from . import asserts
 
 class Outcome(abc.ABC):
-    def __init__(self, prop, assertions):
+    def __init__(self, prop, assertions, child_outcome=None):
         self.prop = prop
         self._asserts = assertions
         self._extra_args = []
+        self.child_outcome = child_outcome
 
         # execution state
         # for nice output
@@ -59,8 +60,8 @@ class UnitSuccess(Success):
         return '<unit>'
 
 class Witness(Success):
-    def __init__(self, prop, witness, assertions=None):
-        super().__init__(prop, assertions)
+    def __init__(self, prop, witness, assertions=None, child_outcome=None):
+        super().__init__(prop, assertions, child_outcome)
         self._witness = witness
 
     @property
@@ -68,9 +69,9 @@ class Witness(Success):
         return self._witness
 
 class Failure(Outcome):
-    def __init__(self, prop, assertions=None, message='Unspecified Failure'):
+    def __init__(self, prop, assertions=None, child_outcome=None, message='Unspecified Failure'):
         self._msg = message
-        super().__init__(prop, assertions)
+        super().__init__(prop, assertions, child_outcome)
 
     @property
     def reason(self):
@@ -89,8 +90,8 @@ class NoWitness(Failure):
     pass
 
 class UnrelatedException(Failure):
-    def __init__(self, prop, exception, assertions=None):
-        super().__init__(prop, assertions)
+    def __init__(self, prop, exception, assertions=None, child_outcome=None):
+        super().__init__(prop, assertions, child_outcome)
         self._e = exception
 
     @property
@@ -98,8 +99,8 @@ class UnrelatedException(Failure):
         return self._e
 
 class Counter(Failure):
-    def __init__(self, prop, counter, assertions=None):
-        super().__init__(prop, assertions)
+    def __init__(self, prop, counter, assertions=None, child_outcome=None):
+        super().__init__(prop, assertions, child_outcome)
         self._counter = counter
 
     @property
@@ -107,8 +108,8 @@ class Counter(Failure):
         return self._counter
 
 class AssertionCounter(Counter):
-    def __init__(self, prop, counter, msg, assertions=None):
-        super().__init__(prop, counter, assertions=assertions)
+    def __init__(self, prop, counter, msg, assertions=None, child_outcome=None):
+        super().__init__(prop, counter, assertions=assertions, child_outcome=child_outcome)
         self._msg = msg
         self._extra_args.append(msg)
 
@@ -151,10 +152,6 @@ class Property:
         self.path = _get_path(i=1)
         self.name = name or type.name
 
-        # each Property clause can have a parent clause
-        # for nested properties
-        self.parent = None
-
         # the Property can store its current, partially evaluated state
         # (assertions_log, counterexample/witness)
         self.partial = (None, None)
@@ -194,7 +191,7 @@ class Property:
         return self.name
 
     def __repr__(self):
-        return self.name
+        return 'Property<{}>'.format(self.name)
 
 class Quantified(Property):
     '''A Property that is a function quantified over some type
@@ -203,7 +200,7 @@ class Quantified(Property):
         self.type = utils.convert_type(type)
         self.func = func
         if quant_name and not name:
-            name = '{}[{}]'.format(_get_name_from_func(func, 'forall'), utils.pretty_type(self.type))
+            name = '{}[{}:{}]'.format(_get_name_from_func(func, quant_name), utils.pretty_type(self.type), str(func))
         super().__init__(name=name)
 
     @property
@@ -269,19 +266,25 @@ def _run_prop_func(depth, prop, type, f):
             with asserts.change_assertions_log(log):
                 v = f(*counter.args, **counter.kwargs)
 
-            if not v:
-                yield Counter(prop, counter, assertions=log)
+            # TODO: decide between returning True/False
+            # returning None
+            # or combination + assertions to be failure/pass
+            if v is False:
+                yield counter, Counter(prop, counter, assertions=log)
             elif isinstance(v, clauses.Property):
                 c = v.run(depth)
                 try:
                     while True:
                         next(c)
                 except StopIteration as e:
-                    yield e.value
+                    if isinstance(e.value, Success):
+                        yield counter, Witness(prop, counter, assertions=log, child_outcome=e.value)
+                    else:
+                        yield counter, Counter(prop, counter, assertions=log, child_outcome=e.value)
             else:
-                yield Witness(prop, counter, assertions=log)
+                yield counter, Witness(prop, counter, assertions=log)
         except AssertionError as e:
-            yield AssertionCounter(prop, counter, e.args[0], assertions=log)
+            yield counter, AssertionCounter(prop, counter, e.args[0], assertions=log)
 
 class forall(Quantified):
     '''Universal quantification
@@ -298,9 +301,11 @@ class forall(Quantified):
     def run(self, depth):
         # run_prop_func just runs the property's func, which is exactly all forall clauses does
         # so there's no required extra step here.
-        for v in _run_prop_func(depth, self, self.type, self.func):
-            if isinstance(v, Failure):
+        for c, v in _run_prop_func(depth, self, self.type, self.func):
+            if isinstance(v, AssertionCounter):
                 return v
+            if isinstance(v, Failure):
+                return Counter(self, c, assertions=v.assertions, child_outcome=v.child_outcome)
             yield
 
         return NoCounter(self, assertions=v.assertions)
@@ -320,9 +325,12 @@ class exists(Quantified):
     def run(self, depth):
         # run_prop_func just runs the property's func, which is exactly all an exists clause does
         # so there's no required extra step here.
-        for v in _run_prop_func(depth, self, self.type, self.func):
-            if isinstance(v, Success):
+        for c, v in _run_prop_func(depth, self, self.type, self.func):
+            if isinstance(v, AssertionCounter):
                 return v
+            if isinstance(v, Success):
+                # TODO: Some Conversion Method
+                return Witness(self, c, assertions=v.assertions, child_outcome=v.child_outcome)
             yield
 
         return NoWitness(self, assertions=v.assertions)

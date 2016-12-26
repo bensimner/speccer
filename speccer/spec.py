@@ -2,120 +2,119 @@ import sys
 import types
 import functools
 import traceback
-import contextlib
 
 from . import clauses
 from . import strategy
 from . import model
-from . import utils
 from . import pset
 from . import config
 
 @functools.lru_cache(32)
 def _find_ancestors(outcome):
     parents = []
-    parent = outcome.prop.parent
+    parent = outcome.child_outcome
     while parent:
-        parents.append(parent)
-        parent = parent.parent
+        parents.append(parent.prop)
+        parent = parent.child_outcome
     return parents
 
-def _print_arg(counter):
+def _print_arg(counter, outfile=sys.stdout):
     for arg, value in counter.arguments.items():
         if isinstance(value, model.Partials):
-            print(' {} ='.format(arg))
-            print('> {}'.format(value.pretty))
+            outfile.write(' {} =\n'.format(arg))
+            outfile.write('> {}\n'.format(value.pretty))
         else:
-            print('  {}={}'.format(arg, value))
+            outfile.write('  {}={}\n'.format(arg, value))
 
-def _print_reason(outcome):
+def _print_reason(outcome, outfile=sys.stdout):
     if outcome.assertions:
-        print(' assertions:')
+        outfile.write(' passed assertions:\n')
 
         for a in outcome.assertions:
-            print(' > assert,    {}'.format(a))
+            outfile.write(' >  assert,    {}\n'.format(a))
 
     if isinstance(outcome, clauses.AssertionCounter):
-        print('')
-        print('reason: {}'.format(outcome.message))
+        outfile.write('\n')
+        outfile.write(' failure reason: {}\n'.format(outcome.message))
 
-def _print_parents(outcome):
+def _print_parents(outcome, outfile=sys.stdout):
     _parents = _find_ancestors(outcome)
     for p in reversed(_parents):
-        print('{} ->'.format(clause_to_path(p)))
+        outfile.write('{} ->\n'.format(clause_to_path(p)))
         assertions, counter = p.partial
-        print(' with arguments:')
-        _print_arg(counter)
+        outfile.write(' with arguments:\n')
+        _print_arg(counter, outfile=outfile)
 
         assertions, _ = p.partial
         if assertions:
-            print(' assertions:')
+            outfile.write(' passed assertions:\n')
 
             for a in assertions:
-                print(' > assert,    {}'.format(a))
+                outfile.write(' >  assert,    {}\n'.format(a))
 
-        print('')
+            outfile.write('\n')
 
-def _print_prop_summary(prop, outcome):
+def _print_prop_summary(prop, outcome, outfile=sys.stdout):
     name = prop.name
     failed_impl = prop.failed_implications
     depth = outcome.state['depth']
     n = outcome.state['calls']
-    print('After {} call(s) ({} did not meet implication)'.format(n, failed_impl))
-    print('To depth {}'.format(depth))
-    print('In property `{}`'.format(name))
-    print()
+    outfile.write('After {} call(s) ({} did not meet implication)\n'.format(n, failed_impl))
+    outfile.write('To depth {}\n'.format(depth))
+    outfile.write('In property `{}`\n'.format(name))
+    outfile.write('\n')
 
 
-def _print_success(prop, depth, success):
-    print('-' * 80)
+def _print_success(prop, depth, success, outfile=sys.stdout):
+    outfile.write('-' * 80 + '\n')
 
     if isinstance(success, clauses.NoCounter):
-        print('Found no counterexample')
-        _print_prop_summary(prop, success)
+        outfile.write('Found no counterexample\n')
+        _print_prop_summary(prop, success, outfile=outfile)
     elif isinstance(success, clauses.Witness):
-        print('Found witness')
-        _print_prop_summary(prop, success)
+        outfile.write('Found witness\n')
+        _print_prop_summary(prop, success, outfile=outfile)
 
-        _print_parents(success)
-        print('{} ->'.format(clause_to_path(success.prop)))
-        print(' witness:')
-        _print_arg(success.reason)
-        _print_reason(success)
+        outfile.write('{} ->\n'.format(clause_to_path(success.prop)))
+        outfile.write(' witness:\n')
+        _print_arg(success.reason, outfile=outfile)
+        _print_reason(success, outfile=outfile)
+        outfile.write('\n')
+        _print_parents(success, outfile=outfile)
 
-    print('')
-    print('OK')
+    outfile.write('\nOK\n')
 
-def _print_failure(prop, depth, failure):
-    print('=' * 80)
+def _print_failure(prop, depth, failure, outfile=sys.stdout):
+    outfile.write('=' * 80)
+    outfile.write('\n')
 
-    print('Failure')
-    _print_prop_summary(prop, failure)
-    _print_parents(failure)
-    print('{} ->'.format(clause_to_path(failure.prop)))
+    outfile.write('Failure\n')
+    _print_prop_summary(prop, failure, outfile=outfile)
+    outfile.write('{} ->\n'.format(clause_to_path(failure.prop)))
     if isinstance(failure, clauses.Counter):
-        print(' counterexample:')
-        _print_arg(failure.reason)
-        _print_reason(failure)
+        outfile.write(' counterexample:\n')
+        _print_arg(failure.reason, outfile=outfile)
+        _print_reason(failure, outfile=outfile)
     elif isinstance(failure, clauses.UnrelatedException):
-        print(' exception:')
-        print()
+        outfile.write(' exception:\n')
+        outfile.write('\n')
         e = failure.reason
-        traceback.print_exception(type(e), e, e.__traceback__)
+        traceback.print_exception(type(e), e, e.__traceback__, file=outfile)
     elif isinstance(failure, clauses.NoWitness):
-        print(' no witness.')
+        outfile.write(' no witness.\n')
+    outfile.write('\n')
+    _print_parents(failure, outfile=outfile)
 
-    print('')
-    print('FAIL')
+    outfile.write('\nFAIL\n')
 
-def _pretty_print(prop, depth, outcome):
+def _pretty_print(prop, depth, outcome, outfile=sys.stdout):
     if isinstance(outcome, clauses.Success):
-        _print_success(prop, depth, outcome)
+        _print_success(prop, depth, outcome, outfile=outfile)
     else:
-        _print_failure(prop, depth, outcome)
+        _print_failure(prop, depth, outcome, outfile=outfile)
 
-def spec(depth, prop_or_prop_set, output=True, args=(), outfile=sys.stdout):
-    '''Run `speccer` on given :class:`Property` 'prop'
+def spec(depth, prop, output=True, args=(), outfile=sys.stdout):
+    '''Run `speccer` on given :class:`Property` 'prop' or some iterable of properties 'prop'
     to depth 'depth'
 
     if output=True then print to 'outfile', otherwise just return boolean
@@ -134,16 +133,14 @@ def spec(depth, prop_or_prop_set, output=True, args=(), outfile=sys.stdout):
     > spec(3, f)
     > spec(3, f())
     '''
-
-    with contextlib.redirect_stdout(outfile if output else None):
-        out = _spec(depth, prop_or_prop_set, args=args)
+    out = _spec(depth, prop, args=args, outfile=outfile)
 
     if config.CONFIG.graphviz:
         strategy.generation_graph.render()
 
     return out
 
-def _spec(depth, prop_or_prop_set, args=()):
+def _spec(depth, prop_or_prop_set, args=(), outfile=sys.stdout):
     if isinstance(prop_or_prop_set, types.FunctionType) or isinstance(prop_or_prop_set, types.MethodType):
         f = prop_or_prop_set
         prop_or_prop_set = prop_or_prop_set(*args)
@@ -159,16 +156,16 @@ def _spec(depth, prop_or_prop_set, args=()):
         return _spec_prop(depth, prop_or_prop_set)
     else:
         try:
-            for p_name in prop_or_prop_set:
-                p = getattr(prop_or_prop_set, p_name)
-                out = _spec(depth, p, args=args)
+            for p in prop_or_prop_set:
+                out = _spec(depth, p, args=args, outfile=outfile)
                 if isinstance(out, clauses.Failure):
                     return out
 
-                print('~' * 80)
+                outfile.write('~' * 80)
+                outfile.write('\n')
         except TypeError:
             raise
-    return clauses.UnitSuccess(None, None)  # TODO: Better output for propsets?
+    return clauses.UnitSuccess(None)  # TODO: Better output for propsets?
 
 def _get_outcome(p):
     try:
@@ -214,38 +211,7 @@ def _spec_prop(depth, prop):
     return outcome
 
 def clause_to_path(clause):
-    location = []
-    p = clause
-    while p is not None:
-        location.append(p.name)
-        p = p.parent
-    return '.'.join(location)
-
-def _clause_to_path(clause):
-    '''Convert a Property clause to a prettyified string
-    '''
-    location = ''
-    p = clause
-    while p is not None:
-        typ = p.type
-        type_name = typ.name
-        if typ not in [clauses.PropertyType.FORALL, clauses.PropertyType.EXISTS, ]:
-            p = p.parent
-            continue
-
-        types = p.args[0]
-        name = '{}({})'.format(type_name, ', '.join(map(utils.pretty_type, types)))
-
-        if not location:
-            location = name
-        else:
-            location = '{}::{}'.format(name, location)
-
-        if not p.parent:
-            location = '{}.{}'.format(p.name, location)
-
-        p = p.parent
-    return location
+    return clause.name
 
 def run_clause(depth, clause):
     '''Given some Property clause
