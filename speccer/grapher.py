@@ -1,7 +1,4 @@
-import uuid
-import inspect
 import contextlib
-import collections
 
 from . import config
 

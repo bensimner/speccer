@@ -1,12 +1,20 @@
+import logging.config
+
+import attr
+@attr.s
+class _PyState:
+    has_typing = attr.ib(default=False)
+
+PyState = _PyState()
+
 from .default_strategies import *
 from .model import *
 from .strategy import *
+from .ops import *
 from .spec import *
 from .clauses import *
 from .pset import *
 from .asserts import *
-
-import logging.config
 
 def enableLogging(debug=False):
     logging.config.dictConfig({

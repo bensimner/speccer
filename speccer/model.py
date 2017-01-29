@@ -8,9 +8,9 @@ import collections
 from typing import List
 from pprint import pprint
 
-from . import spec
 from . import asserts
-from .strategy import Strategy, values, value_args, mapS
+from .strategy import Strategy
+from .ops import values, value_args, mapS
 from .error_types import MissingStrategyError, InvalidPartials
 
 __all__ = [

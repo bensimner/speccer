@@ -1,14 +1,16 @@
-import string
+from . import PyState
+
 try:
-    from typing import Tuple, List, T
+    import typing
+    PyState.has_typing = True
 except ImportError:
-    print('E: Cannot locate `typing`')
-    print('E: Expected Python3.5 or greater')
-    import sys
-    sys.exit(1)
+    import warnings
+    warnings.warn('Cannot locate `typing`, expected python3.5 or greater, defaulting to builtins only.')
 
 import logging
-from .strategy import Strategy, mapS
+import string
+
+from .strategy import Strategy
 from .utils import intersperse
 from . import strategy
 
@@ -35,19 +37,26 @@ class IntStrat(Strategy[int]):
             yield i
             yield -i
 
-class ListStrat(Strategy[List]):
-    def generate(self, depth, t):
-        yield []
+if PyState.has_typing:
+    class ListStrat(Strategy[typing.List]):
+        def generate(self, depth, t):
+            yield []
 
-        def _list(x):
-            for l in Strategy[List[t]](depth - 1):
-                yield [x] + l
+            def _list(x):
+                for l in Strategy[typing.List[t]](depth - 1):
+                    yield [x] + l
 
-        yield from intersperse(*[_list(x) for x in Strategy[t](depth)])
+            yield from intersperse(*[_list(x) for x in Strategy[t](depth)])
 
-class TupleStrat(Strategy[Tuple]):
-    def generate(self, depth, *ts):
-        yield from strategy.value_args(depth, *ts)
+    class TupleStrat(Strategy[typing.Tuple]):
+        def generate(self, depth, *ts):
+            yield from strategy.value_args(depth, *ts)
+
+    class UnionStrat(Strategy[typing.Union]):
+        def generate(self, depth, *ts):
+            print('generate Union[{}]'.format(ts))
+            for t in ts:
+                yield from strategy(depth, t)
 
 class StrStrat(Strategy[str]):
     def generate(self, depth):
@@ -58,6 +67,10 @@ class BoolStrat(Strategy[bool]):
     def generate(self, _):
         yield False
         yield True
+
+class NoneStrat(Strategy[None]):
+    def generate(self, _):
+        yield None
 
 # for debugging
 if False:

@@ -1,5 +1,8 @@
-import typing
 import collections
+
+from . import PyState
+if PyState.has_typing:
+    import typing
 
 def intersperse(*its):
     iters = collections.deque(map(iter, its))
@@ -45,8 +48,14 @@ def convert_type(t):
     '''Converts a python type to a `typing` type
     '''
     if isinstance(t, tuple):
-        return typing.Tuple[t]
+        if PyState.has_typing:
+            return typing.Tuple[t]
+        else: raise ValueError('Cannot implicitly find tuple strategy on python versions <3.5')
     elif isinstance(t, list):
-        [t_] = t
-        return typing.List[t_]
+        if PyState.has_typing:
+            [t_] = t
+            return typing.List[t_]
+        else:
+            raise ValueError('Cannot implicitly find list strategy on python versions <3.5')
+
     return t
