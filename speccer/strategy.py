@@ -10,7 +10,7 @@ import functools
 import collections
 
 from .error_types import MissingStrategyError
-from . import utils
+from . import misc
 from . import grapher
 from . import typeable
 
@@ -247,7 +247,7 @@ class StratMeta(abc.ABCMeta):
             def generate(self, d, *args):
                 yield from strat_origin(d, *(typ.args + args))
 
-            args = ', '.join(map(utils.pretty_type, typ.args))
+            args = ', '.join(map(misc.pretty_type, typ.args)) # TODO: make this use typeable
             name = 'Generated_{}[{}]'.format(strat_origin.__name__, args)
             GenStrat = type(name, (s,), dict(generate=generate))
             GenStrat.__module__ = strat_origin.__module__

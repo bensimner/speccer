@@ -8,6 +8,12 @@ class Typeable:
     args = attr.ib()
     arity = attr.ib()
 
+    def pretty(self):
+        if self.args:
+            return '{}[{}]'.format(name, args)
+
+        return '{}[{}]'.format(name)
+
 def from_type(t):
     '''Converts a type `t` to a Typeable
     '''

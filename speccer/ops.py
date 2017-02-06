@@ -7,7 +7,7 @@ import logging
 import contextlib
 import collections
 
-from . import utils
+from . import misc
 from . import strategy
 
 log = logging.getLogger('ops')
@@ -23,10 +23,11 @@ def implies(f, t: type):
     ''' f => t
     '''
     impl_name = f.__name__
-    t = utils.convert_type(t)
+    # TODO: make this use typeable
+    t = misc.convert_type(t)
 
     # generate a new type which is t[f]
-    t_pretty = utils.pretty_type(t)
+    t_pretty = misc.pretty_type(t)
     t_name = '{}->{}'.format(impl_name, t_pretty)
     t_new = type(t_name, (t,), {})
     t_new._failed_implications = 0

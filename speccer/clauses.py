@@ -4,7 +4,7 @@ import types
 import inspect
 import contextlib
 
-from . import utils
+from . import misc
 from . import strategy
 from . import clauses
 from . import asserts
@@ -197,10 +197,10 @@ class Quantified(Property):
     '''A Property that is a function quantified over some type
     '''
     def __init__(self, type, func, name=None, quant_name=None):
-        self.type = utils.convert_type(type)
+        self.type = misc.convert_type(type)  # TODO: make this use typeable
         self.func = func
         if quant_name and not name:
-            name = '{}[{}:{}]'.format(_get_name_from_func(func, quant_name), utils.pretty_type(self.type), str(func))
+            name = '{}[{}:{}]'.format(_get_name_from_func(func, quant_name), misc.pretty_type(self.type), str(func))  # TODO: and this
         super().__init__(name=name)
 
     @property
@@ -346,7 +346,7 @@ class _or(Property):
         self.rhs = b
 
     def run(self, depth):
-        g = utils.intersperse(self.lhs.run(depth), self.rhs.run(depth))
+        g = misc.intersperse([self.lhs.run(depth), self.rhs.run(depth)])
         while True:
             try:
                 yield next(g)
@@ -366,7 +366,7 @@ class _and(Property):
         self.rhs = b
 
     def run(self, depth):
-        g = utils.intersperse(self.lhs.run(depth), self.rhs.run(depth))
+        g = misc.intersperse([self.lhs.run(depth), self.rhs.run(depth)])
         while True:
             try:
                 yield next(g)
