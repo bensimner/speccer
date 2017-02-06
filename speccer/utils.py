@@ -4,22 +4,6 @@ from . import PyState
 if PyState.has_typing:
     import typing
 
-def intersperse(*its):
-    iters = collections.deque(map(iter, its))
-    rets = collections.deque([None for _ in range(len(its))])
-    while iters:
-        try:
-            i = iters.popleft()
-            ret = rets.popleft()
-            yield next(i)
-            rets.append(ret)
-            iters.append(i)
-        except StopIteration as e:
-            rets.append(e.value)
-
-    return tuple(rets)
-
-
 def pretty_type(t):
     '''Pretty string of some type
     '''

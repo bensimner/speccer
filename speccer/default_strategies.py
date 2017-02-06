@@ -7,16 +7,36 @@ except ImportError:
     import warnings
     warnings.warn('Cannot locate `typing`, expected python3.5 or greater, defaulting to builtins only.')
 
-import logging
 import string
+import logging
+import collections
+
 
 from .strategy import Strategy
-from .utils import intersperse
 from . import strategy
 
 __all__ = [
     'Nat',
 ]
+
+
+def intersperse(its):
+    iters = collections.deque(iter(i) for i in its)
+    N = len(iters)
+    idxs = collections.deque(range(N))
+    rets = [None] * N
+    while iters:
+        try:
+            i = iters.popleft()
+            idx = idxs.popleft()
+            yield next(i)
+            idxs.append(idx)
+            iters.append(i)
+        except StopIteration as e:
+            rets[idx] = e.value
+
+    return tuple(rets)
+
 
 LETTERS = string.ascii_lowercase
 log = logging.getLogger('default_strategies')
@@ -46,7 +66,7 @@ if PyState.has_typing:
                 for l in Strategy[typing.List[t]](depth - 1):
                     yield [x] + l
 
-            yield from intersperse(*[_list(x) for x in Strategy[t](depth)])
+            yield from intersperse(_list(x) for x in Strategy[t](depth))
 
     class TupleStrat(Strategy[typing.Tuple]):
         def generate(self, depth, *ts):
@@ -54,9 +74,7 @@ if PyState.has_typing:
 
     class UnionStrat(Strategy[typing.Union]):
         def generate(self, depth, *ts):
-            print('generate Union[{}]'.format(ts))
-            for t in ts:
-                yield from strategy(depth, t)
+            yield from intersperse(Strategy[t](depth) for t in ts)
 
 class StrStrat(Strategy[str]):
     def generate(self, depth):
