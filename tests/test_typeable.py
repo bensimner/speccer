@@ -60,7 +60,7 @@ if PyState.has_typing:
         assert it.origin is typing.Tuple
         assert it.arity == 0
 
-    def test_union_intstance():
+    def test_union_instance():
         it = typeable.from_type(typing.Union[int, str])
         assert it.typ is typing.Union[int, str]
         assert it.origin is typing.Union
