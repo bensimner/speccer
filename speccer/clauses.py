@@ -200,7 +200,7 @@ class Quantified(Property):
         self.type = misc.convert_type(type)  # TODO: make this use typeable
         self.func = func
         if quant_name and not name:
-            name = '{}[{}:{}]'.format(_get_name_from_func(func, quant_name), misc.pretty_type(self.type), str(func))  # TODO: and this
+            name = '{}({}, {})'.format(_get_name_from_func(func, quant_name), misc.pretty_type(self.type), str(func))  # TODO: and this
         super().__init__(name=name)
 
     @property
