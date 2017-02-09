@@ -7,8 +7,8 @@ import logging
 import contextlib
 import collections
 
-from . import misc
 from . import strategy
+from . import typeable
 
 log = logging.getLogger('ops')
 
@@ -23,16 +23,15 @@ def implies(f, t: type):
     ''' f => t
     '''
     impl_name = f.__name__
-    # TODO: make this use typeable
-    t = misc.convert_type(t)
 
     # generate a new type which is t[f]
-    t_pretty = misc.pretty_type(t)
+    typ = typeable.from_type(t)
+    t_pretty = typ.pretty()
     t_name = '{}->{}'.format(impl_name, t_pretty)
-    t_new = type(t_name, (t,), {})
+    t_new = type(t_name, (typ.typ,), {})
     t_new._failed_implications = 0
 
-    @mapS(strategy.Strategy[t], register_type=t_new)
+    @mapS(strategy.Strategy[typ.typ], register_type=t_new)
     def newStrat(d, v, *args):
         try:
             if f(v) is False:

@@ -5,6 +5,7 @@ import inspect
 import contextlib
 
 from . import misc
+from . import typeable
 from . import strategy
 from . import clauses
 from . import asserts
@@ -197,10 +198,10 @@ class Quantified(Property):
     '''A Property that is a function quantified over some type
     '''
     def __init__(self, type, func, name=None, quant_name=None):
-        self.type = misc.convert_type(type)  # TODO: make this use typeable
+        self.type = typeable.from_type(type)
         self.func = func
         if quant_name and not name:
-            name = '{}({}, {})'.format(_get_name_from_func(func, quant_name), misc.pretty_type(self.type), str(func))  # TODO: and this
+            name = '{}({}, {})'.format(_get_name_from_func(func, quant_name), self.type.pretty(), str(func))
         super().__init__(name=name)
 
     @property

@@ -26,6 +26,30 @@ def from_type(t):
     if isinstance(t, Typeable):
         return t
 
+    if isinstance(t, list):
+        if len(t) != 1:
+            if len(t) < 1:
+                reason = 'Missing type parameter'
+            else:
+                reason = 'Too many type parameters, only homogenous lists allowed'
+            msg = 'Can only use literal list alias with a single type, `{}` is invalid: {}'
+            raise ValueError(msg.format(repr(t), reason))
+        t0 = from_type(t[0]).typ
+        return from_type(typing.List[t0])
+    elif isinstance(t, set):
+        if len(t) != 1:
+            if len(t) < 1:
+                reason = 'Missing type parameter'
+            else:
+                reason = 'Too many type parameters, only homogenous sets allowed'
+            msg = 'Can only use literal set alias with a single type, `{}` is invalid: {}'
+            raise ValueError(msg.format(repr(t), reason))
+        t0 = from_type(next(iter(t))).typ
+        return from_type(typing.Set[t0])
+    elif isinstance(t, tuple):
+        args = tuple([from_type(a).typ for a in t])
+        return from_type(typing.Tuple[args])
+
     return _from_typing36(t)
 
 def _from_typing36(t):

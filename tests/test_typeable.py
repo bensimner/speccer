@@ -62,6 +62,43 @@ if PyState.has_typing:
         assert it.origin.args == []
         assert it.arity == 0
 
+    def test_listint_convert():
+        it = typeable.from_type([int])
+        assert it.typ is typing.List[int]
+        assert it.origin.typ is typing.List
+        assert it.origin.origin is None
+        assert it.origin.args == []
+        assert it.arity == 0
+
+    def test_setint_convert():
+        it = typeable.from_type({int})
+        assert it.typ is typing.Set[int]
+        assert it.origin.typ is typing.Set
+        assert it.origin.origin is None
+        assert it.origin.args == []
+        assert it.arity == 0
+
+    def test_tuple_convert():
+        it = typeable.from_type((int, bool))
+        assert it.typ is typing.Tuple[int, bool]
+        assert it.origin.typ is typing.Tuple
+        assert it.origin.origin is None
+        assert it.origin.args == []
+        assert it.arity == 0
+
+    def test_convert_nested():
+        it = typeable.from_type((int, [bool]))
+        assert it.typ is typing.Tuple[int, typing.List[bool]]
+        assert it.origin.typ is typing.Tuple
+        assert it.origin.args == []
+        assert it.origin.origin is None
+        args = it.args
+        assert len(args) == 2
+        assert args[0].typ == int
+        assert args[1].typ == typing.List[bool]
+
+        assert it.arity == 0
+
     def test_list():
         it = typeable.from_type(typing.List)
         assert it.typ is typing.List

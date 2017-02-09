@@ -229,10 +229,9 @@ class StratMeta(abc.ABCMeta):
         # see if we have an instance for t, outright
         try:
             if isinstance(t, typeable.Typeable):
-                s = StratMeta.__strats__[t.typ]
+                return StratMeta.__strats__[t.typ]
             else:
-                s = StratMeta.__strats__[t]
-            return s
+                return StratMeta.__strats__[t]
         except KeyError:
             # for typing.Generic instances
             # try break up t into its origin and paramters
