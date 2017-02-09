@@ -9,14 +9,23 @@ class Typeable:
     arity = attr.ib()
 
     def pretty(self):
-        if self.args:
-            return '{}[{}]'.format(name, args)
+        if not self.origin:
+            name = self.typ.__name__
+        else:
+            name = self.origin.pretty()
 
-        return '{}[{}]'.format(name)
+        if self.args:
+            args = [from_type(a).pretty() for a in self.args]
+            return '{}[{}]'.format(name, ', '.join(args))
+
+        return '{}'.format(name)
 
 def from_type(t):
     '''Converts a type `t` to a Typeable
     '''
+    if isinstance(t, Typeable):
+        return t
+
     return _from_typing36(t)
 
 def _from_typing36(t):
@@ -33,8 +42,8 @@ def _from_typing36(t):
     if not origin:
         return Typeable(typ=t, origin=None, args=[], arity=1)
 
-    args = t.__args__
-    return Typeable(typ=t, origin=origin, args=args, arity=get_arity(origin, args))
+    args = [from_type(t_) for t_ in t.__args__]
+    return Typeable(typ=t, origin=from_type(origin), args=args, arity=get_arity(origin, args))
 
 def get_arity(origin, args=[]):
     '''Gets the arity of some typing type

@@ -51,6 +51,17 @@ if PyState.has_typing:
 
             yield from intersperse(_list(x) for x in Strategy[t](depth))
 
+    class SetStrat(Strategy[typing.Set]):
+        '''TODO: make generation less redundant'''
+        def generate(self, depth, t):
+            yield {}
+
+            def _list(x):
+                for l in Strategy[typing.Set[t]](depth - 1):
+                    yield {x}.union(l)
+
+            yield from intersperse(_list(x) for x in Strategy[t](depth))
+
     class TupleStrat(Strategy[typing.Tuple]):
         def generate(self, depth, *ts):
             yield from strategy.value_args(depth, *ts)

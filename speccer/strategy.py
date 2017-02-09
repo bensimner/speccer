@@ -228,7 +228,11 @@ class StratMeta(abc.ABCMeta):
     def get_strat_instance(self, t):
         # see if we have an instance for t, outright
         try:
-            return StratMeta.__strats__[t]
+            if isinstance(t, typeable.Typeable):
+                s = StratMeta.__strats__[t.typ]
+            else:
+                s = StratMeta.__strats__[t]
+            return s
         except KeyError:
             # for typing.Generic instances
             # try break up t into its origin and paramters
@@ -242,16 +246,16 @@ class StratMeta(abc.ABCMeta):
                 raise MissingStrategyError('Cannot generate new strategy for type {}'.format(typ))
 
             strat_origin = self.get_strat_instance(typ.origin)
-            s = self.new(t)
+            s = self.new(typ.typ)
 
             def generate(self, d, *args):
-                yield from strat_origin(d, *(typ.args + args))
+                yield from strat_origin(d, *([a.typ for a in typ.args] + list(args)))
 
-            args = ', '.join(map(misc.pretty_type, typ.args)) # TODO: make this use typeable
+            args = ', '.join(t.pretty() for t in typ.args) # TODO: make this use typeable
             name = 'Generated_{}[{}]'.format(strat_origin.__name__, args)
             GenStrat = type(name, (s,), dict(generate=generate))
             GenStrat.__module__ = strat_origin.__module__
-            StratMeta.__strats__[s] = GenStrat
+            StratMeta.__strats__[typ.typ] = GenStrat
             return GenStrat
         raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
 
