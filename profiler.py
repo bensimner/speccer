@@ -23,16 +23,29 @@ stats.add(PROFILE_FILE)
 
 # get the top 10% of speccer's runtime
 stats.sort_stats('tottime')
-w, st = stats.get_print_list(['speccer/speccer', 0.1])
+w, st = stats.get_print_list(['speccer/speccer'])
 
-def make_pie_from_callers(callers, rem=0):
+def make_pie_from_callers(callers):
     labels, sizes, callbacks = [], [], {}
 
     T = sum(stats.stats[f][2] for f in callers)
-    other = T*rem
-    T = T + other
+    sorted_callers = list(sorted(callers, key=lambda f: stats.stats[f][2]))
 
-    for f in callers:
+    other = T*0.1
+
+    N = 0
+    min_callers, max_callers = [], []
+    swap = False
+    for f in sorted_callers:
+        if N >= other:
+            max_callers.append(f)
+        else:
+            N += stats.stats[f][2]
+            min_callers.append(f)
+
+    T = T - N + other
+
+    for f in max_callers:
         mname, line, fname = f
         mname_path = pathlib.Path(mname)
         module = mname_path.parts[-1]
@@ -43,24 +56,23 @@ def make_pie_from_callers(callers, rem=0):
         sizes.append(tot_time/T)
         callbacks[name] = callers
 
-    if other != 0:
-        # account for "other"
-        labels.append('other')
-        sizes.append(other/T)
-        callbacks['other'] = None
+    # account for "other"
+    labels.append('other')
+    sizes.append(other/T)
+    callbacks['other'] = min_callers
 
     return labels, sizes, callbacks
 
 figs = {}
 
-def make_new_pie_from_callers(callers, call_name=None, rem=0):
+def make_new_pie_from_callers(callers, call_name=None):
     # plot the stats
     fig, ax = plt.subplots()
 
     if call_name:
         ax.set_title('Breakdown of {} callees'.format(call_name))
 
-    labels, sizes, callbacks = make_pie_from_callers(callers, rem=rem)
+    labels, sizes, callbacks = make_pie_from_callers(callers)
     wedges, _ = ax.pie(sizes, labels=labels)
 
     for w in wedges:
@@ -77,6 +89,6 @@ def make_new_pie_from_callers(callers, call_name=None, rem=0):
     ax.axis('equal')
     plt.show()
 
-make_new_pie_from_callers(st, call_name='speccer test suite', rem=0.1)
+make_new_pie_from_callers(st, call_name='speccer test suite')
 os.remove(PROFILE_FILE)
 plt.show()
