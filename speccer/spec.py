@@ -181,6 +181,9 @@ def _spec_prop(depth, prop):
 
     outs = run_clause(depth, prop)
     n = 0
+    d = 1
+    dots = 0
+    print('(x1)', end='')
     try:
         while True:
             try:
@@ -190,9 +193,16 @@ def _spec_prop(depth, prop):
             except Exception as e:
                 raise StopIteration(clauses.UnrelatedException(prop, e))
 
-            print('.', flush=True, end='')
+            if n % d == 0:
+                dots += 1
+                print('.', flush=True, end='')
+
+            if n == d*10:
+                d *= 10
+                print('(x{})'.format(d), flush=True, end='')
+
             n += 1
-            if n % 80 == 0:
+            if dots % 80 == 0:
                 print('')
     except StopIteration as e:
         outcome = e.value
