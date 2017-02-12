@@ -5,7 +5,6 @@ import pstats
 import pathlib
 import pytest
 import matplotlib.pyplot as plt
-from pprint import pprint
 
 PROFILE_FILE = '.profile'
 
@@ -55,7 +54,6 @@ def make_pie_from_callers(callers, rem=0):
 figs = {}
 
 def make_new_pie_from_callers(callers, call_name=None, rem=0):
-    print('make new pie from callers({})'.format(callers))
     # plot the stats
     fig, ax = plt.subplots()
 
@@ -79,6 +77,6 @@ def make_new_pie_from_callers(callers, call_name=None, rem=0):
     ax.axis('equal')
     plt.show()
 
-make_new_pie_from_callers(st, rem=0.1)
+make_new_pie_from_callers(st, call_name='speccer test suite', rem=0.1)
 os.remove(PROFILE_FILE)
 plt.show()
