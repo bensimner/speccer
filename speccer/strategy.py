@@ -232,7 +232,7 @@ class StratMeta(abc.ABCMeta):
                 return StratMeta.__strats__[t.typ]
             else:
                 return StratMeta.__strats__[t]
-        except KeyError:
+        except (KeyError, TypeError):  # accept TypeError to allow unhashable types, for aliasing
             # for typing.Generic instances
             # try break up t into its origin and paramters
             # and see if we have a strat instances for those.
