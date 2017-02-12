@@ -1,10 +1,14 @@
 from speccer import strategy, ops, PyState
+from speccer.default_strategies import Neg
 
 def listify(t, d):
     return list(ops.values(d, t))
 
 def test_ints():
     assert listify(int, 2) == [0, 1, -1, 2, -2]
+
+def test_negs():
+    assert listify(Neg, 2) == [0, -1, -2]
 
 def test_bools():
     assert listify(bool, 10) == [False, True]

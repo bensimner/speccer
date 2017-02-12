@@ -110,12 +110,14 @@ def mapS(strat, register_type=None, autoregister=False, **kwargs):
                     return v
 
                 s = strat(depth, *args)
-                gen = iter(s)
+                for v in s:
                 while True:
                     try:
                         v = next(gen)
                     except StopIteration:
                         # TODO(BenSimner) this seems horribly wrong
+                        # TODO(BenSimner) except the code below needs to referece the generator
+                        # so cannot wrap in a for loop
                         return
 
                     val_gens.append((s._gv_node, gen._gv_node, f(depth, v, *args)))

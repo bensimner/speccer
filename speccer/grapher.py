@@ -23,8 +23,36 @@ class Node:
         return (self.id == other.id
                 and self.edges == other.edges
                 and self._edge_attrs == other._edge_attrs)
+class _GraphInterface:
+    def new_node(self, node=None, name=None):
+        '''Returns a new node with the given name
+        '''
+        return Node('0')
 
-class Graph:
+    def add(self, node_id, name):
+        '''add a new node with some id and name to the underlying digraph
+        '''
+        return Node(node_id)
+
+    @contextlib.contextmanager
+    def push_context(self, node=None, name=None, remove=False, edge_attrs={}):
+        '''Pushes a new stack context
+        TODO: What does that mean?
+        '''
+        yield Node('n/a')
+
+    def edge(self, a, b, **attrs):
+        '''Create a new edge between nodes a and b
+        '''
+
+    def remove(self, node):
+        '''Remove a given node and incident edges
+        '''
+
+    def render(self):
+        '''Renders'''
+
+class _Graph:
     def __init__(self):
         self._nodes = set()
         self._stack = []
@@ -70,7 +98,7 @@ class Graph:
             node = Node(node_id)
 
         self._nodes.add(node)
-        return node 
+        return node
 
     def edge(self, a, b, **attrs):
         a._edge_attrs[b] = attrs
@@ -112,3 +140,8 @@ class Graph:
         return (other._stack == self._stack
                 and other._nodes == self._nodes)
         
+
+if config.CONFIG.graphviz:
+    Graph = _Graph
+else:
+    Graph = _GraphInterface

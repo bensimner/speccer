@@ -15,6 +15,7 @@ import collections
 from .strategy import Strategy
 from .misc import intersperse
 from . import strategy
+from . import ops
 
 __all__ = [
     'Nat',
@@ -64,7 +65,7 @@ if PyState.has_typing:
 
     class TupleStrat(Strategy[typing.Tuple]):
         def generate(self, depth, *ts):
-            yield from strategy.value_args(depth, *ts)
+            yield from ops.value_args(depth, *ts)
 
     class UnionStrat(Strategy[typing.Union]):
         def generate(self, depth, *ts):
@@ -83,6 +84,14 @@ class BoolStrat(Strategy[bool]):
 class NoneStrat(Strategy[None]):
     def generate(self, _):
         yield None
+
+
+class Neg:
+    pass
+
+@ops.mapS(Strategy[Nat], register_type=Neg)
+def MappedStrat(depth, value):
+    yield -value
 
 # for debugging
 if False:
