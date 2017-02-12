@@ -29,21 +29,15 @@ def make_pie_from_callers(callers):
     labels, sizes, callbacks = [], [], {}
 
     T = sum(stats.stats[f][2] for f in callers)
-    sorted_callers = list(sorted(callers, key=lambda f: stats.stats[f][2]))
+    sorted_callers = list(sorted(callers, reverse=True, key=lambda f: stats.stats[f][2]))
 
-    other = T*0.1
-
-    N = 0
-    min_callers, max_callers = [], []
-    swap = False
+    other_callers, max_callers = [], []
     for f in sorted_callers:
-        if N >= other:
-            max_callers.append(f)
+        t  = stats.stats[f][2]
+        if t < T*0.01:
+            other_callers.append(f)
         else:
-            N += stats.stats[f][2]
-            min_callers.append(f)
-
-    T = T - N + other
+            max_callers.append(f)
 
     for f in max_callers:
         mname, line, fname = f
@@ -54,12 +48,15 @@ def make_pie_from_callers(callers):
         name = f'{module}:{fname}(line {line})'
         labels.append(name)
         sizes.append(tot_time/T)
-        callbacks[name] = callers
+        if callers:
+            callbacks[name] = callers
 
-    # account for "other"
-    labels.append('other')
-    sizes.append(other/T)
-    callbacks['other'] = min_callers
+    if len(other_callers) > 0:
+        # account for "other"
+        other = sum(stats.stats[f][2] for f in other_callers)
+        labels.append('other')
+        sizes.append(other/T)
+        callbacks['other'] = other_callers
 
     return labels, sizes, callbacks
 
@@ -82,6 +79,8 @@ def make_new_pie_from_callers(callers, call_name=None):
         l = evt.artist.get_label()
         cb = callbacks[l]
         if cb:
+            if l == 'other':
+                l = '{}/other'.format(call_name)
             make_new_pie_from_callers(cb, call_name=l)
 
 
