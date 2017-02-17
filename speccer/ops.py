@@ -45,10 +45,10 @@ def implies(f, t: type):
     newStrat.__qualname__ = t_name
     return t_new
 
-def values(depth, t):
-    yield from strategy.Strategy.get_strat_instance(t)(depth)
+def values(depth, t, **kwargs):
+    yield from strategy.Strategy.get_strat_instance(t)(depth, **kwargs)
 
-def value_args(depth, *types):
+def value_args(depth, *types, **kwargs):
     '''Creates a `Strategy' which generates all tuples of type *types
     i.e.
         value_args(1, str, int) ->
@@ -70,7 +70,7 @@ def value_args(depth, *types):
             (1, MissingStrategyError)
             (-1, MissingStrategyError)
     '''
-    yield from strategy.generate_args_from_strategies(*map(lambda t: values(depth, t), types))
+    yield from strategy.generate_args_from_strategies(*map(lambda t: values(depth, t, **kwargs), types))
 
 def mapS(strat, register_type=None, autoregister=False, **kwargs):
     '''

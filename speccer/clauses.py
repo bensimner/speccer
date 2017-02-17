@@ -302,14 +302,16 @@ class forall(Quantified):
     def run(self, depth):
         # run_prop_func just runs the property's func, which is exactly all forall clauses does
         # so there's no required extra step here.
+        assertions = []
         for c, v in _run_prop_func(depth, self, self.type, self.func):
             if isinstance(v, AssertionCounter):
                 return v
             if isinstance(v, Failure):
                 return Counter(self, c, assertions=v.assertions, child_outcome=v.child_outcome)
             yield
+            assertions = v.assertions
 
-        return NoCounter(self, assertions=v.assertions)
+        return NoCounter(self, assertions=assertions)
 
 class exists(Quantified):
     '''Existential quantification

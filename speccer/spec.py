@@ -183,7 +183,6 @@ def _spec_prop(depth, prop):
     n = 0
     d = 1
     dots = 0
-    print('(x1)', end='')
     try:
         while True:
             try:
@@ -209,12 +208,15 @@ def _spec_prop(depth, prop):
         outcome.state['calls'] = n
         outcome.state['depth'] = depth
 
+        if n % d != 0:
+            print('…', end='')
+
         if isinstance(outcome, clauses.UnrelatedException):
             print('E')
         elif isinstance(outcome, clauses.Failure):
             print('F')
         else:
-            print('.')
+            print('')
 
         _pretty_print(prop, depth, outcome)
 

@@ -4,6 +4,7 @@
 
 import abc
 import heapq
+import inspect
 import logging
 import inspect
 import functools
@@ -247,8 +248,9 @@ class StratMeta(abc.ABCMeta):
             strat_origin = self.get_strat_instance(typ.origin)
             s = self.new(typ.typ)
 
-            def generate(self, d, *args):
-                yield from strat_origin(d, *([a.typ for a in typ.args] + list(args)))
+            def generate(self, d, *args, **kwargs):
+                new_args = [a.typ for a in typ.args] + list(args)
+                yield from strat_origin(d, *new_args, **kwargs)
 
             args = ', '.join(t.pretty() for t in typ.args) # TODO: make this use typeable
             name = 'Generated_{}[{}]'.format(strat_origin.__name__, args)
@@ -261,7 +263,16 @@ class StratMeta(abc.ABCMeta):
 class StrategyIterator:
     def __init__(self, strat):
         self.strategy = strat
-        self._generator = strat.generate(strat._depth, *strat._args)
+        sig = inspect.signature(strat.generate)
+        params = sig.parameters
+        kws = {}
+        for kw in params:
+            if kw in strat._kws:
+                kws[kw] = strat._kws[kw]
+            elif params[kw].kind == inspect.Parameter.VAR_KEYWORD:
+                kws.update(strat._kws)
+                break
+        self._generator = strat.generate(strat._depth, *strat._args, **kws)
 
         # Node for this StrategyIterator
         self._gv_node = None
@@ -297,11 +308,12 @@ class Strategy(metaclass=StratMeta):
     '''
     log = logging.getLogger('strategy')
 
-    def __init__(self, depth, *args):
+    def __init__(self, depth, *args, **kws):
         self.log.debug('{}.new({})'.format(self.__class__.__name__, depth))
         self._nodes = []
         self._depth = depth
         self._args = args
+        self._kws = kws
 
         # Node for this StrategyIterator
         node_name = '{}, depth:{}'.format(self.name, self._depth)
@@ -323,7 +335,7 @@ class Strategy(metaclass=StratMeta):
             yield f(*argt)
 
     @abc.abstractmethod
-    def generate(self, depth, *args):
+    def generate(self, depth, *type_params, **kwargs):
         '''Generator for all values of depth 'depth'
 
         Allows extra args for higher-kinded types
