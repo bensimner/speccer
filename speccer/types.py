@@ -17,7 +17,7 @@ class Word4:
     '''
 
 class Word8:
-    '''Natural numbers up to 4 bits
+    '''Natural numbers up to 8 bits
     '''
 
 if HAS_TYPING:

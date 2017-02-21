@@ -67,7 +67,7 @@ if HAS_TYPING:
     class SetStrat(Strategy[typing.Set]):
         '''TODO: make generation less redundant'''
         def generate(self, depth, t, *args, **kwargs):
-            yield {}
+            yield set()
 
             def _list(x):
                 for l in Strategy[typing.Set[t]](depth - 1, *args, **kwargs):
