@@ -90,8 +90,11 @@ class PairGen:
         return t
 
 def generate_args_from_strategies(*iters):
+    log = logging.getLogger('generate_args_from_strategies({})'.format(iters))
+
     gens = collections.deque(map(iter, iters))
     n = len(gens)
+    log.debug('n={}'.format(n))
 
     values = [[] for _ in range(n)]
     ds = collections.deque(enumerate(values))
@@ -109,7 +112,7 @@ def generate_args_from_strategies(*iters):
                 except StopIteration:
                     return
 
-            log.debug('generate_args_from_strategies: \n values = {}\n t = {}'.format(values, pair_next))
+            log.debug('values = {}, t = {}'.format(values, pair_next))
 
             t = ()
             for i in range(n):

@@ -1,17 +1,17 @@
 import logging
 import logging.config
 
-import attr
+from . import default_strategies
+from .model import Model, command
+from .strategy import Strategy, register, has_strat_instance, get_strat_instance
+from .ops import values, value_args, implies, mapS
+from .spec import spec
+from .clauses import empty, exists, forall
 
-from .default_strategies import *
-from .model import *
-from .strategy import *
-from .ops import *
-from .spec import *
-from .clauses import *
-from .pset import *
-from .asserts import *
-from .types import *
+from .asserts import (assertTrue, assertFalse, assertThat, assertEqual,
+                      assertNotEqual, assertIs, assertIsNot, assertIsInstance)
+
+from . import types
 
 def enableLogging(debug=False):
     logging.config.dictConfig({
