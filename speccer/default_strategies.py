@@ -32,14 +32,14 @@ class Nat:
 
 class NatStrat(Strategy[Nat]):
     def generate(self, depth):
-        for i in range(depth):
+        for i in range(depth + 1):
             yield i
 
 class IntStrat(Strategy[int]):
     def generate(self, depth):
         yield 0
 
-        for i in range(1, depth):
+        for i in range(1, depth + 1):
             yield i
             yield -i
 
