@@ -1,12 +1,3 @@
-from . import PyState
-
-try:
-    import typing
-    PyState.has_typing = True
-except ImportError:
-    import warnings
-    warnings.warn('Cannot locate `typing`, expected python3.5 or greater, defaulting to builtins only.')
-
 import string
 import itertools
 import logging
@@ -16,21 +7,13 @@ from .strategy import Strategy
 from .misc import intersperse
 from . import strategy
 from . import ops
-
-__all__ = [
-    'Nat',
-    'Permutations',
-]
-
+from . import types
+from .helper import HAS_TYPING
 
 LETTERS = string.ascii_lowercase
 log = logging.getLogger('default_strategies')
 
-class Nat:
-    '''Natural numbers 0, 1, 2, ...
-    '''
-
-class NatStrat(Strategy[Nat]):
+class NatStrat(Strategy[types.Nat]):
     def generate(self, depth):
         for i in range(depth + 1):
             yield i
@@ -43,13 +26,31 @@ class IntStrat(Strategy[int]):
             yield i
             yield -i
 
-if PyState.has_typing:
-    T = typing.T
-    class Permutations(typing.Generic[T]):
-        '''Lists of permutations of some type T
-        '''
+class Word2Strat(Strategy[types.Word2]):
+    def generate(self, depth):
+        yield 0
 
-    class PermutationsStrat(Strategy[Permutations]):
+        for i in range(1, min(depth, 2**2)):
+            yield i
+
+class Word4Strat(Strategy[types.Word4]):
+    def generate(self, depth):
+        yield 0
+
+        for i in range(1, min(depth, 2**4)):
+            yield i
+
+class Word8Strat(Strategy[types.Word8]):
+    def generate(self, depth):
+        yield 0
+
+        for i in range(1, min(depth, 2**8)):
+            yield i
+
+if HAS_TYPING:
+    import typing
+
+    class PermutationsStrat(Strategy[types.Permutations]):
         def generate(self, depth, t, *args, **kws):
             yield from itertools.permutations(Strategy[t](depth, *args, **kws))
 
@@ -96,17 +97,6 @@ class NoneStrat(Strategy[None]):
     def generate(self, _):
         yield None
 
-
-class Neg:
-    pass
-
-@ops.mapS(Strategy[Nat], register_type=Neg)
+@ops.mapS(Strategy[types.Nat], register_type=types.Neg)
 def MappedStrat(depth, value):
     yield -value
-
-# for debugging
-if False:
-    class SimpleIntStrat(IntStrat):
-        def generate(self, depth):
-            yield 0
-            yield 1

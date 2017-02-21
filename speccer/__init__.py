@@ -1,11 +1,7 @@
+import logging
 import logging.config
 
 import attr
-@attr.s
-class _PyState:
-    has_typing = attr.ib(default=False)
-
-PyState = _PyState()
 
 from .default_strategies import *
 from .model import *
@@ -15,11 +11,13 @@ from .spec import *
 from .clauses import *
 from .pset import *
 from .asserts import *
+from .types import *
 
 def enableLogging(debug=False):
     logging.config.dictConfig({
         'version': 1,
         'disable_existing_loggers': False,
+
         'formatters': {
             'default': {
                 'format': '[{asctime}] {levelname}, {name}: {message}',
@@ -31,14 +29,12 @@ def enableLogging(debug=False):
         'handlers': {
             'stdout': {
                 'class': 'logging.StreamHandler',
-                'level': 'DEBUG',
                 'formatter': 'default',
-                'stream': 'ext://sys.stdout',
             },
         },
 
         'root': {
-            'level': 'DEBUG' if debug else 'INFO',
+            'level': logging.DEBUG if debug else logging.INFO,
             'handlers': ['stdout'],
         },
     })

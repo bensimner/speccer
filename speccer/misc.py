@@ -1,9 +1,5 @@
 import collections
 
-from . import PyState
-if PyState.has_typing:
-    import typing
-
 def intersperse(its):
     iters = collections.deque(iter(i) for i in its)
     N = len(iters)

@@ -15,7 +15,6 @@ from . import misc
 from . import grapher
 from . import typeable
 
-log = logging.getLogger('strategy')
 generation_graph = grapher.Graph()
 
 __all__ = [
@@ -228,6 +227,8 @@ class StratMeta(abc.ABCMeta):
 
     def get_strat_instance(self, t):
         # see if we have an instance for t, outright
+        log = logging.getLogger('strategy.getStratInstance({t})'.format(t=t))
+        log.debug('get')
         try:
             if isinstance(t, typeable.Typeable):
                 return StratMeta.__strats__[t.typ]
@@ -241,14 +242,18 @@ class StratMeta(abc.ABCMeta):
             # and put that composition in our StratMeta dict.
             # this allows generation of higher-kinded types such as List[~T]
             typ = typeable.from_type(t)
+            log.debug('found typeable={typ}'.format(typ=typ))
 
             if typ.origin is None:
+                log.debug('Cannot generate strategy for that type, no origin.')
                 raise MissingStrategyError('Cannot generate new strategy for type {}'.format(typ))
 
             strat_origin = self.get_strat_instance(typ.origin)
             s = self.new(typ.typ)
+            log.debug('new type, with origin={origin}'.format(origin=strat_origin))
 
             def generate(self, d, *args, **kwargs):
+                log.debug('generate(depth={d}, *{args}, **{kwargs})'.format(d=d, args=args, kwargs=kwargs))
                 new_args = [a.typ for a in typ.args] + list(args)
                 yield from strat_origin(d, *new_args, **kwargs)
 
@@ -262,14 +267,18 @@ class StratMeta(abc.ABCMeta):
 
 class StrategyIterator:
     def __init__(self, strat):
+        self.log = logging.getLogger('strategy.StrategyIterator({})'.format(str(strat)))
         self.strategy = strat
         sig = inspect.signature(strat.generate)
         params = sig.parameters
         kws = {}
+        self.log.debug('init')
         for kw in params:
             if kw in strat._kws:
+                self.log.debug('add keyword {kw}'.format(kw=kw))
                 kws[kw] = strat._kws[kw]
             elif params[kw].kind == inspect.Parameter.VAR_KEYWORD:
+                self.log.debug('merge keywords on VAR_KEYWORD {kw}'.format(kw=kw))
                 kws.update(strat._kws)
                 break
         self._generator = strat.generate(strat._depth, *strat._args, **kws)
@@ -277,10 +286,8 @@ class StrategyIterator:
         # Node for this StrategyIterator
         self._gv_node = None
 
-        name = str(strat)
-        self.log = logging.getLogger('strategy.iterator({})'.format(name))
-
     def __next__(self):
+        self.log.debug('next()'.format(strat=self.strategy))
         if self.strategy._depth > 0:
             with generation_graph.push_context(self.strategy._gv_node):
                 with generation_graph.push_context(remove=True) as n:
@@ -306,9 +313,9 @@ class Strategy(metaclass=StratMeta):
 
     In future: this will be a wrapper around a generator (defined by `Strategy.generate')
     '''
-    log = logging.getLogger('strategy')
 
     def __init__(self, depth, *args, **kws):
+        self.log = logging.getLogger('strategy.{}'.format(str(self)))
         self.log.debug('{}.new({})'.format(self.__class__.__name__, depth))
         self._nodes = []
         self._depth = depth
