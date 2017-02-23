@@ -65,15 +65,14 @@ if HAS_TYPING:
             yield from intersperse(_list(x) for x in Strategy[t](depth, *args, **kws))
 
     class SetStrat(Strategy[typing.Set]):
-        '''TODO: make generation less redundant'''
+        '''TODO: make generation less strict'''
         def generate(self, depth, t, *args, **kwargs):
-            yield set()
+            alls = list(Strategy[t](depth, *args, **kwargs))
 
-            def _list(x):
-                for l in Strategy[typing.Set[t]](depth - 1, *args, **kwargs):
-                    yield {x}.union(l)
+            def all_of_size(n):
+                yield from (set(p) for p in itertools.combinations(alls, n))
 
-            yield from intersperse(_list(x) for x in Strategy[t](depth, *args, **kwargs))
+            yield from intersperse(all_of_size(n) for n in range(depth))
 
     class TupleStrat(Strategy[typing.Tuple]):
         def generate(self, depth, *ts, **kwargs):
