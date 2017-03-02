@@ -7,7 +7,6 @@ import contextlib
 from . import misc
 from . import typeable
 from . import strategy
-from . import clauses
 from . import asserts
 
 class Outcome(abc.ABC):
@@ -152,6 +151,7 @@ class Property:
     def __init__(self, name=None):
         self.path = _get_path(i=1)
         self.name = name or type.name
+        self.failed_implications = None
 
         # the Property can store its current, partially evaluated state
         # (assertions_log, counterexample/witness)
@@ -272,7 +272,7 @@ def _run_prop_func(depth, prop, type, f):
             # or combination + assertions to be failure/pass
             if v is False:
                 yield counter, Counter(prop, counter, assertions=log)
-            elif isinstance(v, clauses.Property):
+            elif isinstance(v, Property):
                 c = v.run(depth)
                 try:
                     while True:

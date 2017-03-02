@@ -4,13 +4,13 @@ import logging.config
 import sys
 import attr
 
+from . import types as _types
 from .default_strategies import *
 from .model import *
 from .strategy import *
 from .ops import *
 from .pset import *
 from .asserts import *
-from .types import *
 from .clauses import *
 from . import spec as specM
 
