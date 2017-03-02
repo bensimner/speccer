@@ -223,7 +223,7 @@ class empty(Property):
     >>> spec(3, prop)    # empty failure
     '''
     def __init__(self):
-        super().__init__(None, name='empty')
+        super().__init__(name='empty')
 
     def reset_implications(self):
         pass
@@ -239,7 +239,7 @@ class unit(Property):
     >>> spec(3, prop)    # unit success
     '''
     def __init__(self):
-        super().__init__(None, name='unit')
+        super().__init__(name='unit')
 
     def reset_implications(self):
         pass
@@ -304,11 +304,12 @@ class forall(Quantified):
         # so there's no required extra step here.
         assertions = []
         for c, v in _run_prop_func(depth, self, self.type, self.func):
+            yield c
+
             if isinstance(v, AssertionCounter):
                 return v
             if isinstance(v, Failure):
                 return Counter(self, c, assertions=v.assertions, child_outcome=v.child_outcome)
-            yield
             assertions = v.assertions
 
         return NoCounter(self, assertions=assertions)
@@ -329,12 +330,13 @@ class exists(Quantified):
         # run_prop_func just runs the property's func, which is exactly all an exists clause does
         # so there's no required extra step here.
         for c, v in _run_prop_func(depth, self, self.type, self.func):
+            yield c
+
             if isinstance(v, AssertionCounter):
                 return v
             if isinstance(v, Success):
                 # TODO: Some Conversion Method
                 return Witness(self, c, assertions=v.assertions, child_outcome=v.child_outcome)
-            yield
 
         return NoWitness(self, assertions=v.assertions)
 

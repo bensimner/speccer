@@ -32,6 +32,9 @@ class PSetMeta(type):
         return len(self.__properties__)
 
 class PropertySet(metaclass=PSetMeta):
+    def __init__(self):
+        self.depth = None
+
     def __iter__(self):
         return iter(self.__properties__)
 

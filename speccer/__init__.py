@@ -1,17 +1,23 @@
 import logging
 import logging.config
 
+import sys
 import attr
 
 from .default_strategies import *
 from .model import *
 from .strategy import *
 from .ops import *
-from .spec import *
-from .clauses import *
 from .pset import *
 from .asserts import *
 from .types import *
+from .clauses import *
+from . import spec as specM
+
+def spec(depth, testable, outfile=sys.stdout):
+    '''Runs speccer on some testable type (function, Property)
+    '''
+    return specM.spec(depth, testable, specM.Options(output_file=outfile))
 
 def enableLogging(debug=False):
     logging.config.dictConfig({

@@ -1,3 +1,5 @@
+import attr
+
 import sys
 import types
 import functools
@@ -8,6 +10,13 @@ from . import strategy
 from . import model
 from . import pset
 from . import config
+
+@attr.s
+class Options:
+    verbose = attr.ib(default=False)
+    show = attr.ib(default=False)
+    args = attr.ib(default=[])
+    output_file = attr.ib(default=sys.stdout)
 
 @functools.lru_cache(32)
 def _find_ancestors(outcome):
@@ -21,7 +30,7 @@ def _find_ancestors(outcome):
 def _print_arg(counter, outfile=sys.stdout):
     for arg, value in counter.arguments.items():
         if isinstance(value, model.Partials):
-            outfile.write(' {} =\n'.format(arg))
+            outfile.write('{} {} =\n'.format(arg))
             outfile.write('> {}\n'.format(value.pretty))
         else:
             outfile.write('  {}={}\n'.format(arg, value))
@@ -40,7 +49,7 @@ def _print_reason(outcome, outfile=sys.stdout):
 def _print_parents(outcome, outfile=sys.stdout):
     _parents = _find_ancestors(outcome)
     for p in reversed(_parents):
-        outfile.write('{} ->\n'.format(clause_to_path(p)))
+        outfile.write('{} ->\n'.format(p.name))
         assertions, counter = p.partial
         outfile.write(' with arguments:\n')
         _print_arg(counter, outfile=outfile)
@@ -75,7 +84,7 @@ def _print_success(prop, depth, success, outfile=sys.stdout):
         outfile.write('Found witness\n')
         _print_prop_summary(prop, success, outfile=outfile)
 
-        outfile.write('{} ->\n'.format(clause_to_path(success.prop)))
+        outfile.write('{} ->\n'.format(success.prop.name))
         outfile.write(' witness:\n')
         _print_arg(success.reason, outfile=outfile)
         _print_reason(success, outfile=outfile)
@@ -90,7 +99,7 @@ def _print_failure(prop, depth, failure, outfile=sys.stdout):
 
     outfile.write('Failure\n')
     _print_prop_summary(prop, failure, outfile=outfile)
-    outfile.write('{} ->\n'.format(clause_to_path(failure.prop)))
+    outfile.write('{} ->\n'.format(failure.prop.name))
     if isinstance(failure, clauses.Counter):
         outfile.write(' counterexample:\n')
         _print_arg(failure.reason, outfile=outfile)
@@ -113,7 +122,7 @@ def _pretty_print(prop, depth, outcome, outfile=sys.stdout):
     else:
         _print_failure(prop, depth, outcome, outfile=outfile)
 
-def spec(depth, prop, output=True, args=(), outfile=sys.stdout):
+def spec(depth, prop, options):
     '''Run `speccer` on given :class:`Property` 'prop' or some iterable of properties 'prop'
     to depth 'depth'
 
@@ -133,36 +142,33 @@ def spec(depth, prop, output=True, args=(), outfile=sys.stdout):
     > spec(3, f)
     > spec(3, f())
     '''
-    out = _spec(depth, prop, args=args, outfile=outfile)
+    out = _spec(depth, prop, options=options)
 
     if config.CONFIG.graphviz:
         strategy.generation_graph.render()
 
     return out
 
-def _spec(depth, prop_or_prop_set, args=(), outfile=sys.stdout):
-    if isinstance(prop_or_prop_set, types.FunctionType) or isinstance(prop_or_prop_set, types.MethodType):
+def _spec(depth, prop_or_prop_set, options):
+    if callable(prop_or_prop_set):
         f = prop_or_prop_set
-        prop_or_prop_set = prop_or_prop_set(*args)
+        prop_or_prop_set = prop_or_prop_set(*options.args)
         prop_or_prop_set.name = f.__name__
-
-    if isinstance(prop_or_prop_set, pset.PSetMeta):
-        prop_or_prop_set = prop_or_prop_set()
 
     if isinstance(prop_or_prop_set, pset.PropertySet):
         prop_or_prop_set.depth = depth
 
     if isinstance(prop_or_prop_set, clauses.Property):
-        return _spec_prop(depth, prop_or_prop_set)
+        return _spec_prop(depth, prop_or_prop_set, options=options)
     else:
         try:
             for p in prop_or_prop_set:
-                out = _spec(depth, p, args=args, outfile=outfile)
+                out = _spec(depth, p, options=options)
                 if isinstance(out, clauses.Failure):
                     return out
 
-                outfile.write('~' * 80)
-                outfile.write('\n')
+                options.output_file.write('~' * 80)
+                options.output_file.write('\n')
         except TypeError:
             raise
     return clauses.UnitSuccess(None)  # TODO: Better output for propsets?
@@ -174,19 +180,21 @@ def _get_outcome(p):
     except StopIteration as e:
         return e.value
 
-def _spec_prop(depth, prop):
+def _spec_prop(depth, prop, options):
     # reset property state
     # just incase it has been run before
+    outfile = options.output_file
     prop.reset_implications()
 
     outs = run_clause(depth, prop)
     n = 0
     d = 1
     dots = 0
+    passes = []
     try:
         while True:
             try:
-                next(outs)
+                passes.append(next(outs))
             except StopIteration:
                 raise
             except Exception as e:
@@ -194,36 +202,33 @@ def _spec_prop(depth, prop):
 
             if n % d == 0:
                 dots += 1
-                print('.', flush=True, end='')
+                print('.', flush=True, end='', file=outfile)
 
             if n == d*10:
                 d *= 10
-                print('(x{})'.format(d), flush=True, end='')
+                print('(x{})'.format(d), flush=True, end='', file=outfile)
 
             n += 1
             if dots % 80 == 0:
-                print('')
+                print('', file=outfile)
     except StopIteration as e:
         outcome = e.value
         outcome.state['calls'] = n
         outcome.state['depth'] = depth
 
         if n % d != 0:
-            print('…', end='')
+            print('…', end='', file=outfile)
 
         if isinstance(outcome, clauses.UnrelatedException):
-            print('E')
+            print('E', file=outfile)
         elif isinstance(outcome, clauses.Failure):
-            print('F')
+            print('F', file=outfile)
         else:
-            print('')
+            print('', file=outfile)
 
-        _pretty_print(prop, depth, outcome)
+        _pretty_print(prop, depth, outcome, outfile=outfile)
 
     return outcome
-
-def clause_to_path(clause):
-    return clause.name
 
 def run_clause(depth, clause):
     '''Given some Property clause
