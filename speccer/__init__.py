@@ -1,8 +1,6 @@
-import logging
 import logging.config
 
 import sys
-import attr
 
 from . import types as _types
 from .default_strategies import *

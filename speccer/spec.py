@@ -71,7 +71,7 @@ def _print_prop_summary(prop, outcome, outfile=sys.stdout):
     if failed_impl:
         outfile.write('After {} call(s) ({} did not meet implication)\n'.format(n, failed_impl))
     else:
-        outfile.write('After {} call(s)'.format(n))
+        outfile.write('After {} call(s)\n'.format(n))
     outfile.write('To depth {}\n'.format(depth))
     outfile.write('In property `{}`\n'.format(name))
     outfile.write('\n')

@@ -150,12 +150,18 @@ class Property:
     '''
     def __init__(self, name=None):
         self.path = _get_path(i=1)
-        self.name = name or type.name
-        self.failed_implications = None
+        self.name = name or 'Unknown'
 
         # the Property can store its current, partially evaluated state
         # (assertions_log, counterexample/witness)
         self.partial = (None, None)
+
+    @property
+    def failed_implications(self):
+        return None
+
+    def reset_implications(self):
+        pass
 
     def __and__(self, other):
         if not isinstance(other, Property):
@@ -181,7 +187,7 @@ class Property:
 
         return _or(self, other)
 
-    def run(self):
+    def run(self, depth):
         '''Run a Property until completion
         yield at each step
         and then return the Result
@@ -218,7 +224,7 @@ class Quantified(Property):
 
 class empty(Property):
     '''The empty property
-
+    >>> from speccer import empty, spec
     >>> prop = empty()
     >>> spec(3, prop)    # empty failure
     '''
@@ -234,7 +240,7 @@ class empty(Property):
 
 class unit(Property):
     '''The identity (unit) property
-
+    >>> from speccer import unit, spec
     >>> prop = unit()
     >>> spec(3, prop)    # unit success
     '''
@@ -293,8 +299,8 @@ class forall(Quantified):
     Takes a type `type` and a function `func`, returning a Property which tests
     `func` against values of type `type` up to some depth.
 
-    >>> prop = forall(int, p)  # for all int's n, p(n) passes
-    >>> prop.run(3)            # try prove for all n to depth 3
+    >> prop = forall(int, p)  # for all int's n, p(n) passes
+    >> prop.run(3)            # try prove for all n to depth 3
     '''
     def __init__(self, type, func, name=None):
         super().__init__(type, func, name, quant_name='forall')
@@ -320,8 +326,8 @@ class exists(Quantified):
     Takes a type `type` and a function `func`, returning a Property which tests
     `func` against values of type `type` up to some depth.
 
-    >>> prop = exists(int, p)  # there exists some int n such that p(n) passes
-    >>> prop.run(3)            # try find n to depth 3
+    >> prop = exists(int, p)  # there exists some int n such that p(n) passes
+    >> prop.run(3)            # try find n to depth 3
     '''
     def __init__(self, type, func, name=None):
         super().__init__(type, func, name, quant_name='exists')
@@ -347,6 +353,7 @@ class _or(Property):
     if no success, then returns the last outcome that was ran
     '''
     def __init__(self, a, b):
+        super().__init__(name='({} or {})'.format(a.name, b.name))
         self.lhs = a
         self.rhs = b
 
@@ -367,6 +374,7 @@ class _and(Property):
     if no failure, then returns the last outcome that was ran
     '''
     def __init__(self, a, b):
+        super().__init__(name='({} and {})'.format(a.name, b.name))
         self.lhs = a
         self.rhs = b
 
