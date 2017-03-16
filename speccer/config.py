@@ -15,4 +15,4 @@ class Config:
         self.graphviz = graphviz
         self.graphviz_digraph = gv.Digraph(format='svg', comment='Generation Instances') if graphviz else None
 
-CONFIG = Config(graphviz=False)
+CONFIG = Config(graphviz=True)

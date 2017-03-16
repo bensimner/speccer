@@ -1,5 +1,5 @@
 from speccer import strategy, ops
-from speccer.types import Neg
+from speccer._types import Neg
 
 def listify(t, d):
     return list(ops.values(d, t))

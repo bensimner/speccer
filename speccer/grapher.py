@@ -13,6 +13,9 @@ class Node:
     def __repr__(self):
         return 'Node({}, name={})'.format(repr(self.id), repr(self.name))
 
+    def __str__(self):
+        return '({})'.format(self.name)
+
     def __hash__(self):
         return hash(self.id) ^ 0b101010110101101010
 
@@ -20,75 +23,40 @@ class Node:
         if not isinstance(other, Node):
             return False
 
-        return (self.id == other.id
-                and self.edges == other.edges
-                and self._edge_attrs == other._edge_attrs)
-class _GraphInterface:
-    def new_node(self, node=None, name=None):
-        '''Returns a new node with the given name
-        '''
-        return Node('0')
-
-    def add(self, node_id, name):
-        '''add a new node with some id and name to the underlying digraph
-        '''
-        return Node(node_id)
-
-    @contextlib.contextmanager
-    def push_context(self, node=None, name=None, remove=False, edge_attrs={}):
-        '''Pushes a new stack context
-        TODO: What does that mean?
-        '''
-        yield Node('n/a')
-
-    def edge(self, a, b, **attrs):
-        '''Create a new edge between nodes a and b
-        '''
-
-    def remove(self, node):
-        '''Remove a given node and incident edges
-        '''
-
-    def render(self):
-        '''Renders'''
-
-class _Graph:
+class Graph:
     def __init__(self):
         self._nodes = set()
-        self._stack = []
+        self.stack = []
         self._previous = None
         self._sz = 0
         self.gv = config.CONFIG.graphviz_digraph
+        self.iterator = None
 
-    def new_node(self, node=None, name=None):
-        if node is None:
-            node = self.add(Graph.generate_hash(), name)
-        elif name is not None:
-            node.name = name
+    def create_node(self, name=None):
+        node = self.add(Graph.generate_hash(), name)
         return node
 
     @contextlib.contextmanager
-    def push_context(self, node=None, name=None, remove=False, edge_attrs={}):
-        node = self.new_node(node=node, name=name)
+    def push_node(self, node=None, name=None, **edge_attrs):
+
+        if not node:
+            node = self.create_node(name)
 
         last = None
-        if self._stack:
-            last = self._stack[-1]
+        if self.stack:
+            last = self.stack[-1]
 
-        self._push((node, edge_attrs))
+        self.stack.append(node)
 
         try:
             yield node
         except StopIteration:
-            if remove:
-                self.remove(node)
-            raise
-        else:
-            if last:
-                last_node, last_attrs = last
-                self.edge(last_node, node, **edge_attrs)
+            node.name = "StopIteration"  # this seems weird to put the StopIteration in the graph, but it's for completeness
         finally:
-            self._pop()
+            self.stack.pop()
+
+        if last:
+            self.edge(node, last, **edge_attrs)
 
     def add(self, node_id, name):
         node_id = node_id or Graph.generate_hash()
@@ -139,9 +107,7 @@ class _Graph:
 
         return (other._stack == self._stack
                 and other._nodes == self._nodes)
-        
 
-if config.CONFIG.graphviz:
-    Graph = _Graph
-else:
-    Graph = _GraphInterface
+if not config.CONFIG.graphviz:
+    import unittest.mock
+    Graph = unittest.mock.Mock()

@@ -4,16 +4,15 @@
 
 import abc
 import heapq
-import inspect
 import logging
 import inspect
 import functools
 import collections
 
-from .error_types import MissingStrategyError
-from . import misc
+from . import _errors
 from . import grapher
 from . import typeable
+from . import ops
 
 generation_graph = grapher.Graph()
 
@@ -132,8 +131,8 @@ def generate_args_from_strategies(*iters):
             v = next(gen)
         except StopIteration:
             continue
-        except MissingStrategyError:
-            v = MissingStrategyError
+        except _errors.MissingStrategyError:
+            v = _errors.MissingStrategyError
             ds.append((di, d))
         else:
             ds.append((di, d))
@@ -152,10 +151,8 @@ def has_strat_instance(t):
     try:
         Strategy.get_strat_instance(t)
         return True
-    except MissingStrategyError:
+    except _errors.MissingStrategyError:
         return False
-
-    raise ValueError(t)
 
 def get_strat_instance(t):
     '''Gets the strategy instance registered to some type 't'
@@ -216,7 +213,7 @@ class StratMeta(abc.ABCMeta):
 
         try:
             return self.get_strat_instance(sub)
-        except MissingStrategyError:
+        except _errors.MissingStrategyError:
             pass
 
         return self.new(sub)
@@ -249,7 +246,7 @@ class StratMeta(abc.ABCMeta):
 
             if typ.origin is None:
                 log.debug('Cannot generate strategy for that type, no origin.')
-                raise MissingStrategyError('Cannot generate new strategy for type {}'.format(typ))
+                raise _errors.MissingStrategyError('Cannot generate new strategy for type {}'.format(typ))
 
             strat_origin = self.get_strat_instance(typ.origin)
             s = self.new(typ.typ)
@@ -266,7 +263,7 @@ class StratMeta(abc.ABCMeta):
             GenStrat.__module__ = strat_origin.__module__
             StratMeta.__strats__[typ.typ] = GenStrat
             return GenStrat
-        raise MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
+        raise _errors.MissingStrategyError('Cannot get Strategy instance for ~{}'.format(t))
 
 class StrategyIterator:
     def __init__(self, strat):
@@ -284,21 +281,20 @@ class StrategyIterator:
                 self.log.debug('merge keywords on VAR_KEYWORD {kw}'.format(kw=kw))
                 kws.update(strat._kws)
                 break
-        self._generator = strat.generate(strat._depth, *strat._args, **kws)
 
-        # Node for this StrategyIterator
-        self._gv_node = None
+        self._generator = strat.generate(strat._depth, *strat._args, **kws)
 
     def __next__(self):
         self.log.debug('next()'.format(strat=self.strategy))
         if self.strategy._depth > 0:
-            with generation_graph.push_context(self.strategy._gv_node):
-                with generation_graph.push_context(remove=True) as n:
-                    self._gv_node = n
+            with generation_graph.push_node(label=str(self.strategy)) as n:
+                try:
                     v = next(self._generator)
-                    n.name = str(v)
-                    return v
-
+                except _errors.FailedAssumption:
+                    print('e: failed assumption')
+                    raise RuntimeError('e: failed assumption, NotImplemented')
+                n.name = str(v)
+                return v
         # with PEP479 this will not automatically stop the parent generator
         # it is important therefore to wrap the generator next() call in a try
         # and except the StopIteration else it bubbles up like other exceptions
@@ -325,25 +321,6 @@ class Strategy(metaclass=StratMeta):
         self._args = args
         self._kws = kws
 
-        # Node for this StrategyIterator
-        node_name = '{}, depth:{}'.format(self.name, self._depth)
-        self._gv_node = generation_graph.new_node(name=node_name)
-
-    def cons(self, f):
-        '''Basically, takes some function `f`
-        looks at its type signature
-        and then creates (and yields from) a strategy to generate inputs to that function
-
-        i..e
-        '''
-        sig = inspect.signature(f)
-        types = list(map(lambda p: p[1].annotation, sig.parameters.items()))
-
-        self.log.debug('cons{}, d={}'.format(tuple(types), self._depth))
-        for argt in value_args(self._depth - 1, *types):
-            self.log.debug('cons: {}'.format(argt))
-            yield f(*argt)
-
     @abc.abstractmethod
     def generate(self, depth, *type_params, **kwargs):
         '''Generator for all values of depth 'depth'
@@ -367,3 +344,18 @@ class Strategy(metaclass=StratMeta):
     def __repr__(self):
         name = self.__class__.__name__
         return '{}({})'.format(name, self._depth)
+
+    @classmethod
+    def Map(cls, t, autoregister=True):
+        def decorator(f):
+            class MappedStrat(Strategy[t], autoregister=autoregister):
+                def generate(self, depth, *args, **kwargs):
+                    with generation_graph.push_node(name=f.__name__):
+                       for k in cls(depth):
+                            yield from f(depth - 1, k, *args, **kwargs)
+
+            MappedStrat.__name__ = f.__name__
+            MappedStrat.__qualname__ = f.__qualname__
+            MappedStrat.__module__ = cls.__module__
+            return MappedStrat
+        return decorator

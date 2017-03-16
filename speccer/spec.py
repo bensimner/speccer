@@ -162,16 +162,19 @@ def _spec(depth, prop_or_prop_set, options):
         prop_or_prop_set.depth = depth
 
     if isinstance(prop_or_prop_set, clauses.Property):
-        return _spec_prop(depth, prop_or_prop_set, options=options)
+        with strategy.generation_graph.push_node(name=str(prop_or_prop_set)):
+            return _spec_prop(depth, prop_or_prop_set, options=options)
     else:
         try:
-            for p in prop_or_prop_set:
-                out = _spec(depth, p, options=options)
-                if isinstance(out, clauses.Failure):
-                    return out
+            with strategy.generation_graph.push_node(name=str(prop_or_prop_set)):
+                for p in prop_or_prop_set:
+                    print('p=', p)
+                    out = _spec(depth, p, options=options)
+                    if isinstance(out, clauses.Failure):
+                        return out
 
-                options.output_file.write('~' * 80)
-                options.output_file.write('\n')
+                    options.output_file.write('~' * 80)
+                    options.output_file.write('\n')
         except TypeError:
             raise
     return clauses.UnitSuccess(None)  # TODO: Better output for propsets?

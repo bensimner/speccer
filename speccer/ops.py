@@ -9,6 +9,7 @@ import collections
 
 from . import strategy
 from . import typeable
+from . import _errors
 
 log = logging.getLogger('ops')
 
@@ -17,7 +18,15 @@ __all__ = [
     'values',
     'mapS',
     'implies',
+    'assume',
 ]
+
+def assume(b):
+    '''Assume b is like a silent assertion
+    if b is True, it's a no-op
+    if b is False, it silently fails (in this case it raises a FailedAssumption which is caught by the strategy'''
+    if not b:
+        raise _errors.FailedAssumption
 
 def implies(f, t: type):
     ''' f => t
@@ -95,18 +104,14 @@ def mapS(strat, register_type=None, autoregister=False, **kwargs):
                     if not val_gens:
                         raise StopIteration
 
-                    s_node, node, g = val_gens.popleft()
+                    g = val_gens.popleft()
 
                     try:
-                        # deal with the circle below the iteration
-                        # need to push those nodes back on to be caught
-                        # also give them dashed lines to show they're mapping (not actual)
-                        with strategy.generation_graph.push_context(s_node, edge_attrs={'style': 'dashed'}):
-                            v = next(g)
+                        v = next(g)
                     except StopIteration:
                         return _yield_one()
 
-                    val_gens.append((s_node, node, g))
+                    val_gens.append(g)
                     return v
 
                 s = strat(depth, *args)
@@ -120,7 +125,7 @@ def mapS(strat, register_type=None, autoregister=False, **kwargs):
                         # and so no for loop allowed
                         return
 
-                    val_gens.append((s._gv_node, gen._gv_node, f(depth, v, *args)))
+                    val_gens.append(f(depth, v, *args))
                     with contextlib.suppress(StopIteration):
                         yield _yield_one()
 

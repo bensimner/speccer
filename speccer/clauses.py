@@ -1,4 +1,3 @@
-import os
 import abc
 import types
 import inspect
@@ -8,6 +7,7 @@ from . import misc
 from . import typeable
 from . import strategy
 from . import asserts
+from . import _errors
 
 class Outcome(abc.ABC):
     def __init__(self, prop, assertions, child_outcome=None):
@@ -130,26 +130,13 @@ def _get_name_from_func(func, other):
 
     return other
 
-def _get_path(i=0, depth=None):
-    '''Inspect Stack to get a relative name for this code point
-    '''
-    stk = inspect.stack()[(2 + i):depth]
-    loc = []
-
-    for sf in reversed(stk):
-        _, fn = os.path.split(sf.filename)
-        f = sf.function
-        loc.append('[{}]{}'.format(fn, f))
-
-    return ':'.join(loc)
-
 class Property:
     '''A Property is the core concept in speccer
 
     It represents a piece of computation that can be evaluated to a success or a failure
     '''
     def __init__(self, name=None):
-        self.path = _get_path(i=1)
+        self.path = misc.get_stack_path(i=1)
         self.name = name or 'Unknown'
 
         # the Property can store its current, partially evaluated state
@@ -262,7 +249,6 @@ def _run_prop_func(depth, prop, type, f):
     If an assertion happens, returns AssertionCounter(prop, COUNTER, EXCEPTION)
     '''
     sig = inspect.signature(f)
-
     for v in strategy.Strategy[type](depth):
         counter = sig.bind(v)
 
@@ -291,7 +277,10 @@ def _run_prop_func(depth, prop, type, f):
             else:
                 yield counter, Witness(prop, counter, assertions=log)
         except AssertionError as e:
-            yield counter, AssertionCounter(prop, counter, e.args[0], assertions=log)
+            msg = e.args[0] if len(e.args) > 0 else '<no message>'
+            yield counter, AssertionCounter(prop, counter, msg, assertions=log)
+        except _errors.FailedAssumption as e:
+            print('failed assumption!')
 
 class forall(Quantified):
     '''Universal quantification

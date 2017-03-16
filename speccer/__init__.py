@@ -2,7 +2,8 @@ import logging.config
 
 import sys
 
-from . import types as _types
+from . import _types
+from ._types import *
 from .default_strategies import *
 from .model import *
 from .strategy import *

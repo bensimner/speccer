@@ -11,7 +11,7 @@ from pprint import pprint
 from . import asserts
 from .strategy import Strategy
 from .ops import values, value_args, mapS
-from .error_types import MissingStrategyError, InvalidPartials
+from ._errors import MissingStrategyError, InvalidPartials
 
 __all__ = [
     'Model',
